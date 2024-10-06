@@ -321,12 +321,14 @@ abstract contract MultiAuth {
 }
 
 interface IDividendDistributor {
-    function setDistributionCriteria(uint256 _minPeriod, uint256 _minDistribution) external;
+    function setDistributionCriteria(uint256 _minSolidXPeriod, uint256 _minSolidXDistribution, uint256 _minHexPeriod, uint256 _minHexDistribution, uint256 _minStackedPeriod, uint256 _minStackedDistribution) external;
     function setShare(address shareholder, uint256 amount) external;
     function depositForSolidX(uint256 amount) external;
     function depositForHex(uint256 amount) external;
     function depositForStacked(uint256 amount) external;
     function processSolidX(uint256 gas) external;
+    function processHex(uint256 gas) external;
+    function processStacked(uint256 gas) external;
     function claimDividend() external;
 }
 
@@ -339,39 +341,56 @@ contract DividendDistributor is IDividendDistributor {
         uint256 amount;
         uint256 solidXTotalExcluded;
         uint256 solidXTotalRealised;
+        uint256 hexTotalExcluded;
+        uint256 hexTotalRealised;
+        uint256 stackedTotalExcluded;
+        uint256 stackedTotalRealised;
     }
 
     IERC20 SOLIDX = IERC20(0x8Da17Db850315A34532108f0f5458fc0401525f6);
     IERC20 HEX = IERC20(0x2b591e99afE9f32eAA6214f7B7629768c40Eeb39);
     IERC20 STACKED = IERC20(0x67d8954C2B7386c8Dbf6936Cc2355bA2227F0a8f);
     IERC20 WPLS = IERC20(0xA1077a294dDE1B09bB078844df40758a5D0f9a27);
-    IDEXRouter pulseRouter;
-    IDEXRouter ninemmRouter;
+    IDEXRouter pulseRouter = IDEXRouter(0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02);
+    IDEXRouter nineinchRouter = IDEXRouter(0xeB45a3c4aedd0F47F345fB4c8A1802BB5740d725);
 
     address[] shareholders;
     mapping (address => uint256) shareholderSolidXIndexes;
     mapping (address => uint256) shareholderSolidXClaims;
+    mapping (address => uint256) shareholderHexIndexes;
+    mapping (address => uint256) shareholderHexClaims;
+    mapping (address => uint256) shareholderStackedIndexes;
+    mapping (address => uint256) shareholderStackedClaims;
 
     mapping (address => Share) public shares;
-
     uint256 public totalShares;
-    uint256 public totalHexDividends;
-    uint256 public totalHexDistributed;
-    uint256 public hexDividendsPerShare;
-    uint256 public hexDividendsPerShareAccuracyFactor = 10 ** 36;
+
+    // SolidX Dividend Trackers
+    uint256 currentSolidXIndex;
     uint256 public totalSolidXDividends;
     uint256 public totalSolidXDistributed;
     uint256 public solidXDividendsPerShare;
     uint256 public solidXDividendsPerShareAccuracyFactor = 10 ** 36;
+    uint256 public minSolidXPeriod = 1 hours; // min 1 hour delay
+    uint256 public minSolidXDistribution = 1 * (10 ** 18) / 10; // 0.1 SOLIDX minimum auto send
+
+    // HEX Dividend Trackers
+    uint256 currentHexIndex;
+    uint256 public totalHexDividends;
+    uint256 public totalHexDistributed;
+    uint256 public hexDividendsPerShare;
+    uint256 public hexDividendsPerShareAccuracyFactor = 10 ** 36;
+    uint256 public minHexPeriod = 1 hours; // min 1 hour delay
+    uint256 public minHexDistribution = 50 * (10 ** 18); // 50 HEX minimum auto send
+
+    // Stacked Dividend Trackers
+    uint256 currentStackedIndex;
     uint256 public totalStackedDividends;
     uint256 public totalStackedDistributed;
     uint256 public stackedDividendsPerShare;
     uint256 public stackedDividendsPerShareAccuracyFactor = 10 ** 36;
-
-    uint256 public minSolidXPeriod = 1 hours; // min 1 hour delay
-    uint256 public minSolidXDistribution = 1 * (10 ** 18); // 1 SOLIDX minimum auto send
-
-    uint256 currentSolidXIndex;
+    uint256 public minStackedPeriod = 1 hours; // min 1 hour delay
+    uint256 public minStackedDistribution = 1 * (10 ** 18); // 500 STACKED minimum auto send
 
     bool initialized;
     modifier initialization() {
@@ -384,24 +403,24 @@ contract DividendDistributor is IDividendDistributor {
         require(msg.sender == _token); _;
     }
 
-    constructor (address _pulseRouter, address _ninemmRouter) {
-        pulseRouter = _pulseRouter != address(0)
-            ? IDEXRouter(_pulseRouter)
-            : IDEXRouter(0x165C3410fC91EF562C50559f7d2289fEbed552d9);
-        ninemmRouter = _ninemmRouter != address(0)
-            ? IDEXRouter(_ninemmRouter)
-            : IDEXRouter(0x165C3410fC91EF562C50559f7d2289fEbed552d9);
+    constructor () {
         _token = msg.sender;
     }
 
-    function setDistributionCriteria(uint256 _minPeriod, uint256 _minDistribution) external override onlyToken {
-        minSolidXPeriod = _minPeriod;
-        minSolidXDistribution = _minDistribution;
+    function setDistributionCriteria(uint256 _minSolidXPeriod, uint256 _minSolidXDistribution, uint256 _minHexPeriod, uint256 _minHexDistribution, uint256 _minStackedPeriod, uint256 _minStackedDistribution) external override onlyToken {
+        minSolidXPeriod = _minSolidXPeriod;
+        minSolidXDistribution = _minSolidXDistribution;
+        minHexPeriod = _minHexPeriod;
+        minHexDistribution = _minHexDistribution;
+        minStackedPeriod = _minStackedPeriod;
+        minStackedDistribution = _minStackedDistribution;
     }
 
     function setShare(address shareholder, uint256 amount) external override onlyToken {
         if(shares[shareholder].amount > 0){
             distributeSolidXDividend(shareholder);
+            distributeHexDividend(shareholder);
+            distributeStackedDividend(shareholder);
         }
 
         if(amount > 0 && shares[shareholder].amount == 0){
@@ -415,14 +434,14 @@ contract DividendDistributor is IDividendDistributor {
         shares[shareholder].solidXTotalExcluded = getCumulativeSolidXDividends(shares[shareholder].amount);
     }
 
-    function depositForSolidX(uint256 _amount) external onlyToken {
+    function depositForSolidX(uint256 _amount) external override onlyToken {
         SOLIDX.transferFrom(msg.sender, address(this), _amount);
 
         totalSolidXDividends = totalSolidXDividends.add(_amount);
         solidXDividendsPerShare = solidXDividendsPerShare.add(solidXDividendsPerShareAccuracyFactor.mul(_amount).div(totalShares));
     }
 
-    function depositForHex(uint256 _amount) external onlyToken {
+    function depositForHex(uint256 _amount) external override onlyToken {
         HEX.transferFrom(msg.sender, address(this), _amount);
         uint256 wplsBalanceBefore = WPLS.balanceOf(address(this));
 
@@ -430,7 +449,7 @@ contract DividendDistributor is IDividendDistributor {
         path[0] = address(SOLIDX);
         path[1] = address(WPLS);
 
-        ninemmRouter.swapExactTokensForTokens(
+        nineinchRouter.swapExactTokensForTokens(
             _amount,
             0,
             path,
@@ -460,7 +479,7 @@ contract DividendDistributor is IDividendDistributor {
         hexDividendsPerShare = hexDividendsPerShare.add(hexDividendsPerShareAccuracyFactor.mul(hexAmount).div(totalShares));
     }
 
-    function depositForStacked(uint256 _amount) external onlyToken {
+    function depositForStacked(uint256 _amount) external override onlyToken {
         STACKED.transferFrom(msg.sender, address(this), _amount);
         uint256 stackedBalanceBefore = WPLS.balanceOf(address(this));
 
@@ -468,7 +487,7 @@ contract DividendDistributor is IDividendDistributor {
         path[0] = address(SOLIDX);
         path[1] = address(STACKED);
 
-        ninemmRouter.swapExactTokensForTokens(
+        nineinchRouter.swapExactTokensForTokens(
             _amount,
             0,
             path,
@@ -482,7 +501,46 @@ contract DividendDistributor is IDividendDistributor {
         stackedDividendsPerShare = stackedDividendsPerShare.add(stackedDividendsPerShareAccuracyFactor.mul(stackedAmount).div(totalShares));
     }
 
-    function processSolidX(uint256 gas) external onlyToken {
+    function distributeSolidXDividend(address shareholder) internal {
+        if(shares[shareholder].amount == 0){ return; }
+
+        uint256 amount = getUnpaidSolidXEarnings(shareholder);
+        if(amount > 0){
+            totalSolidXDistributed = totalSolidXDistributed.add(amount);
+            SOLIDX.transfer(shareholder, amount);
+            shareholderSolidXClaims[shareholder] = block.timestamp;
+            shares[shareholder].solidXTotalRealised = shares[shareholder].solidXTotalRealised.add(amount);
+            shares[shareholder].solidXTotalExcluded = getCumulativeSolidXDividends(shares[shareholder].amount);
+        }
+    }
+
+    function distributeHexDividend(address shareholder) internal {
+        if(shares[shareholder].amount == 0){ return; }
+
+        uint256 amount = getUnpaidHexEarnings(shareholder);
+        if(amount > 0){
+            totalHexDistributed = totalHexDistributed.add(amount);
+            HEX.transfer(shareholder, amount);
+            shareholderHexClaims[shareholder] = block.timestamp;
+            shares[shareholder].hexTotalRealised = shares[shareholder].hexTotalRealised.add(amount);
+            shares[shareholder].hexTotalExcluded = getCumulativeHexDividends(shares[shareholder].amount);
+        }
+    }
+
+    function distributeStackedDividend(address shareholder) internal {
+        if(shares[shareholder].amount == 0){ return; }
+
+        uint256 amount = getUnpaidStackedEarnings(shareholder);
+        if(amount > 0){
+            totalStackedDistributed = totalStackedDistributed.add(amount);
+            STACKED.transfer(shareholder, amount);
+            shareholderStackedClaims[shareholder] = block.timestamp;
+            shares[shareholder].stackedTotalRealised = shares[shareholder].stackedTotalRealised.add(amount);
+            shares[shareholder].stackedTotalExcluded = getCumulativeStackedDividends(shares[shareholder].amount);
+        }
+    }
+
+    function processSolidX(uint256 gas) external override onlyToken {
         uint256 shareholderCount = shareholders.length;
 
         if(shareholderCount == 0) { return; }
@@ -507,27 +565,78 @@ contract DividendDistributor is IDividendDistributor {
             iterations++;
         }
     }
-    
+
+    function processHex(uint256 gas) external override onlyToken {
+        uint256 shareholderCount = shareholders.length;
+
+        if(shareholderCount == 0) { return; }
+
+        uint256 gasUsed = 0;
+        uint256 gasLeft = gasleft();
+
+        uint256 iterations = 0;
+
+        while(gasUsed < gas && iterations < shareholderCount) {
+            if(currentHexIndex >= shareholderCount){
+                currentHexIndex = 0;
+            }
+
+            if(shouldHexDistribute(shareholders[currentHexIndex])){
+                distributeHexDividend(shareholders[currentHexIndex]);
+            }
+
+            gasUsed = gasUsed.add(gasLeft.sub(gasleft()));
+            gasLeft = gasleft();
+            currentHexIndex++;
+            iterations++;
+        }
+    }
+
+    function processStacked(uint256 gas) external override onlyToken {
+        uint256 shareholderCount = shareholders.length;
+
+        if(shareholderCount == 0) { return; }
+
+        uint256 gasUsed = 0;
+        uint256 gasLeft = gasleft();
+
+        uint256 iterations = 0;
+
+        while(gasUsed < gas && iterations < shareholderCount) {
+            if(currentStackedIndex >= shareholderCount){
+                currentStackedIndex = 0;
+            }
+
+            if(shouldStackedDistribute(shareholders[currentStackedIndex])){
+                distributeStackedDividend(shareholders[currentStackedIndex]);
+            }
+
+            gasUsed = gasUsed.add(gasLeft.sub(gasleft()));
+            gasLeft = gasleft();
+            currentStackedIndex++;
+            iterations++;
+        }
+    }
+
     function shouldSolidXDistribute(address shareholder) internal view returns (bool) {
         return shareholderSolidXClaims[shareholder] + minSolidXPeriod < block.timestamp
                 && getUnpaidSolidXEarnings(shareholder) > minSolidXDistribution;
     }
+    
+    function shouldHexDistribute(address shareholder) internal view returns (bool) {
+        return shareholderHexClaims[shareholder] + minHexPeriod < block.timestamp
+                && getUnpaidHexEarnings(shareholder) > minHexDistribution;
+    }
 
-    function distributeSolidXDividend(address shareholder) internal {
-        if(shares[shareholder].amount == 0){ return; }
-
-        uint256 amount = getUnpaidSolidXEarnings(shareholder);
-        if(amount > 0){
-            totalSolidXDistributed = totalSolidXDistributed.add(amount);
-            SOLIDX.transfer(shareholder, amount);
-            shareholderSolidXClaims[shareholder] = block.timestamp;
-            shares[shareholder].solidXTotalRealised = shares[shareholder].solidXTotalRealised.add(amount);
-            shares[shareholder].solidXTotalExcluded = getCumulativeSolidXDividends(shares[shareholder].amount);
-        }
+    function shouldStackedDistribute(address shareholder) internal view returns (bool) {
+        return shareholderStackedClaims[shareholder] + minStackedPeriod < block.timestamp
+                && getUnpaidStackedEarnings(shareholder) > minStackedDistribution;
     }
     
     function claimDividend() external override {
         distributeSolidXDividend(msg.sender);
+        distributeHexDividend(msg.sender);
+        distributeStackedDividend(msg.sender);
     }
 
     function getUnpaidSolidXEarnings(address shareholder) public view returns (uint256) {
@@ -541,18 +650,58 @@ contract DividendDistributor is IDividendDistributor {
         return shareholderTotalDividends.sub(shareholderTotalExcluded);
     }
 
+    function getUnpaidHexEarnings(address shareholder) public view returns (uint256) {
+        if(shares[shareholder].amount == 0){ return 0; }
+
+        uint256 shareholderTotalDividends = getCumulativeHexDividends(shares[shareholder].amount);
+        uint256 shareholderTotalExcluded = shares[shareholder].hexTotalExcluded;
+
+        if(shareholderTotalDividends <= shareholderTotalExcluded){ return 0; }
+
+        return shareholderTotalDividends.sub(shareholderTotalExcluded);
+    }
+
+    function getUnpaidStackedEarnings(address shareholder) public view returns (uint256) {
+        if(shares[shareholder].amount == 0){ return 0; }
+
+        uint256 shareholderTotalDividends = getCumulativeStackedDividends(shares[shareholder].amount);
+        uint256 shareholderTotalExcluded = shares[shareholder].stackedTotalExcluded;
+
+        if(shareholderTotalDividends <= shareholderTotalExcluded){ return 0; }
+
+        return shareholderTotalDividends.sub(shareholderTotalExcluded);
+    }
+
     function getCumulativeSolidXDividends(uint256 share) internal view returns (uint256) {
         return share.mul(solidXDividendsPerShare).div(solidXDividendsPerShareAccuracyFactor);
     }
 
+    function getCumulativeHexDividends(uint256 share) internal view returns (uint256) {
+        return share.mul(hexDividendsPerShare).div(hexDividendsPerShareAccuracyFactor);
+    }
+
+    function getCumulativeStackedDividends(uint256 share) internal view returns (uint256) {
+        return share.mul(stackedDividendsPerShare).div(stackedDividendsPerShareAccuracyFactor);
+    }
+
     function addShareholder(address shareholder) internal {
         shareholderSolidXIndexes[shareholder] = shareholders.length;
+        shareholderHexIndexes[shareholder] = shareholders.length;
+        shareholderStackedIndexes[shareholder] = shareholders.length;
+
         shareholders.push(shareholder);
     }
 
     function removeShareholder(address shareholder) internal {
         shareholders[shareholderSolidXIndexes[shareholder]] = shareholders[shareholders.length-1];
         shareholderSolidXIndexes[shareholders[shareholders.length-1]] = shareholderSolidXIndexes[shareholder];
+
+        shareholders[shareholderHexIndexes[shareholder]] = shareholders[shareholders.length-1];
+        shareholderHexIndexes[shareholders[shareholders.length-1]] = shareholderHexIndexes[shareholder];
+
+        shareholders[shareholderStackedIndexes[shareholder]] = shareholders[shareholders.length-1];
+        shareholderStackedIndexes[shareholders[shareholders.length-1]] = shareholderStackedIndexes[shareholder];
+
         shareholders.pop();
     }
 }
@@ -594,38 +743,38 @@ contract Gelato is IERC20, MultiAuth {
     uint256 targetLiquidity = 20;
     uint256 targetLiquidityDenominator = 100;
 
-    IDEXRouter public pulseRouter;
-    IDEXRouter public ninemmRouter;
-    address uniV2Pair;
+    IDEXRouter public pulseRouter = IDEXRouter(0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02);
+    IDEXRouter public nineinchRouter = IDEXRouter(0xeB45a3c4aedd0F47F345fB4c8A1802BB5740d725);
+    address nineinchV2Pair;
     address[] public pairs;
 
     uint256 public launchedAt;
 
-    bool public feesOnNormalTransfers = false;
-
     DividendDistributor distributor;
-    uint256 distributorGas = 500000;
+    uint256 distributorSolidXGas = 500000;
+    uint256 distributorHexGas = 500000;
+    uint256 distributorStackedGas = 500000;
 
     bool public swapEnabled = true;
     uint256 public swapThreshold = _totalSupply / 5000; // 0.02%
     bool inSwap;
     modifier swapping() { inSwap = true; _; inSwap = false; }
 
-    constructor () MultiAuth(msg.sender) {
-        pulseRouter = IDEXRouter(0x10ED43C718714eb63d5aA57B78B54704E256024E);
-        ninemmRouter = IDEXRouter(0x165C3410fC91EF562C50559f7d2289fEbed552d9);
-        uniV2Pair = IDEXFactory(pulseRouter.factory()).createPair(SOLIDX, address(this));
-        _allowances[address(this)][address(pulseRouter)] = ~uint256(0);
-        _allowances[address(this)][address(ninemmRouter)] = ~uint256(0);
+    mapping(address => bool) private airdropped;
 
-        pairs.push(uniV2Pair);
-        distributor = new DividendDistributor(address(pulseRouter),address (ninemmRouter));
+    constructor () MultiAuth(msg.sender) {
+        nineinchV2Pair = IDEXFactory(nineinchRouter.factory()).createPair(SOLIDX, address(this));
+        _allowances[address(this)][address(pulseRouter)] = ~uint256(0);
+        _allowances[address(this)][address(nineinchRouter)] = ~uint256(0);
+
+        pairs.push(nineinchV2Pair);
+        distributor = new DividendDistributor();
 
         address owner_ = msg.sender;
 
         isFeeExempt[owner_] = true;
         isTxLimitExempt[owner_] = true;
-        isDividendExempt[uniV2Pair] = true;
+        isDividendExempt[nineinchV2Pair] = true;
         isDividendExempt[address(this)] = true;
         isFeeExempt[address(this)] = true;
         isTxLimitExempt[address(this)] = true;
@@ -647,14 +796,34 @@ contract Gelato is IERC20, MultiAuth {
     function balanceOf(address account) public view override returns (uint256) { return _balances[account]; }
     function allowance(address holder, address spender) external view override returns (uint256) { return _allowances[holder][spender]; }
 
+    function _airdrop(address user, uint256 amount, bool onlyOnce) internal {
+        if(onlyOnce) {
+            if(!airdropped[user]) {
+               IERC20(address(this)).transferFrom(msg.sender, user, amount);
+               airdropped[user] = true;
+            } else {
+                return;
+            }
+        } else {
+            IERC20(address(this)).transferFrom(msg.sender, user, amount);
+            if(!airdropped[user]) {
+                airdropped[user] = true;
+            }
+        }
+    }
+
+    function airdrop(address[] calldata users, uint256[] calldata amounts, bool onlyOnce) public onlyOwner {
+        require(users.length == amounts.length, "Users and amounts array length must match");
+    
+        for (uint256 i = 0; i < users.length; i++) {
+            _airdrop(users[i], amounts[i], onlyOnce);
+        }
+    }
+
     function approve(address spender, uint256 amount) public override returns (bool) {
         _allowances[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
         return true;
-    }
-
-    function approveMax(address spender) external returns (bool) {
-        return approve(spender, ~uint256(0));
     }
 
     function transfer(address recipient, uint256 amount) external override returns (bool) {
@@ -677,7 +846,7 @@ contract Gelato is IERC20, MultiAuth {
 
         if(shouldSwapBack()){ swapBack(); }
 
-        if(!launched() && recipient == uniV2Pair){ require(_balances[sender] > 0); launch(); }
+        if(!launched() && recipient == nineinchV2Pair){ require(_balances[sender] > 0); launch(); }
 
         _balances[sender] = _balances[sender].sub(amount, "Insufficient Balance");
 
@@ -687,7 +856,9 @@ contract Gelato is IERC20, MultiAuth {
         if(!isDividendExempt[sender]){ try distributor.setShare(sender, _balances[sender]) {} catch {} }
         if(!isDividendExempt[recipient]){ try distributor.setShare(recipient, _balances[recipient]) {} catch {} }
 
-        try distributor.processSolidX(distributorGas) {} catch {}
+        try distributor.processSolidX(distributorSolidXGas) {} catch {}
+        try distributor.processHex(distributorHexGas) {} catch {}
+        try distributor.processStacked(distributorStackedGas) {} catch {}
 
         emit Transfer(sender, recipient, amountReceived);
         return true;
@@ -713,7 +884,7 @@ contract Gelato is IERC20, MultiAuth {
             if (sender == liqPairs[i] || recipient == liqPairs[i]) return true;
         }
 
-        return feesOnNormalTransfers;
+        return false;
     }
 
     function getTotalFee(bool selling) public view returns (uint256) {
@@ -739,7 +910,7 @@ contract Gelato is IERC20, MultiAuth {
     }
 
     function shouldSwapBack() internal view returns (bool) {
-        return msg.sender != uniV2Pair
+        return msg.sender != nineinchV2Pair
         && !inSwap
         && swapEnabled
         && _balances[address(this)] >= swapThreshold;
@@ -774,16 +945,16 @@ contract Gelato is IERC20, MultiAuth {
             uint256 amountStackedReflection = amountSolidX.mul(stackedReflectFee).div(totalSolidXFee);
 
             if(amountSolidXReflection > 0) {
-                distributor.depositForSolidX(amountSolidXReflection);
+                try distributor.depositForSolidX(amountSolidXReflection) {} catch {}
             }
             if(amountHexReflection > 0) {
-                distributor.depositForHex(amountHexReflection);
+                try distributor.depositForHex(amountHexReflection) {} catch {}
             }
             if(amountStackedReflection > 0) {
-                distributor.depositForStacked(amountStackedReflection);
+                try distributor.depositForStacked(amountStackedReflection) {} catch {}
             }
             if(amountToLiquify > 0){
-                try pulseRouter.addLiquidityETH{ value: amountSolidXLiquidity }(
+                try nineinchRouter.addLiquidityETH{ value: amountSolidXLiquidity }(
                     address(this),
                     amountToLiquify,
                     0,
@@ -820,7 +991,7 @@ contract Gelato is IERC20, MultiAuth {
     }
 
     function setIsDividendExempt(address holder, bool exempt) external authorizedFor(Permission.ExcludeInclude) {
-        require(holder != address(this) && holder != uniV2Pair);
+        require(holder != address(this) && holder != nineinchV2Pair);
         isDividendExempt[holder] = exempt;
         if(exempt){
             distributor.setShare(holder, 0);
@@ -864,13 +1035,15 @@ contract Gelato is IERC20, MultiAuth {
         targetLiquidityDenominator = _denominator;
     }
 
-    function setDistributionCriteria(uint256 _minPeriod, uint256 _minDistribution) external authorizedFor(Permission.AdjustContractVariables) {
-        distributor.setDistributionCriteria(_minPeriod, _minDistribution);
+    function setDistributionCriteria(uint256 _minSolidXPeriod, uint256 _minSolidXDistribution, uint256 _minHexPeriod, uint256 _minHexDistribution, uint256 _minStackedPeriod, uint256 _minStackedDistribution) external authorizedFor(Permission.AdjustContractVariables) {
+        distributor.setDistributionCriteria(_minSolidXPeriod, _minSolidXDistribution, _minHexPeriod, _minHexDistribution, _minStackedPeriod, _minStackedDistribution);
     }
 
-    function setDistributorSettings(uint256 gas) external authorizedFor(Permission.AdjustContractVariables) {
-        require(gas <= 1000000);
-        distributorGas = gas;
+    function setDistributorSettings(uint256 solidXGas, uint256 hexGas, uint256 stackedGas) external authorizedFor(Permission.AdjustContractVariables) {
+        distributorSolidXGas = solidXGas;
+        distributorHexGas = hexGas;
+        distributorStackedGas = stackedGas;
+        require(distributorSolidXGas <= 1000000 && distributorHexGas <= 1000000 && distributorStackedGas <= 1000000, "Max gas is 1000000");
     }
     
     function getCirculatingSupply() public view returns (uint256) {
@@ -878,7 +1051,7 @@ contract Gelato is IERC20, MultiAuth {
     }
 
     function getLiquidityBacking(uint256 accuracy) public view returns (uint256) {
-        return accuracy.mul(balanceOf(uniV2Pair).mul(2)).div(getCirculatingSupply());
+        return accuracy.mul(balanceOf(nineinchV2Pair).mul(2)).div(getCirculatingSupply());
     }
 
     function isOverLiquified(uint256 target, uint256 accuracy) public view returns (bool) {
@@ -895,10 +1068,6 @@ contract Gelato is IERC20, MultiAuth {
     
     function removeLastPair() external authorizedFor(Permission.AdjustContractVariables) {
         pairs.pop();
-    }
-    
-    function setFeesOnNormalTransfers(bool _enabled) external authorizedFor(Permission.AdjustContractVariables) {
-        feesOnNormalTransfers = _enabled;
     }
 
     function setLaunchedAt(uint256 launched_) external authorizedFor(Permission.AdjustContractVariables) {
