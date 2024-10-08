@@ -442,7 +442,7 @@ contract DividendDistributor is IDividendDistributor {
     }
 
     function depositForHex(uint256 _amount) external override onlyToken {
-        HEX.transferFrom(msg.sender, address(this), _amount);
+        SOLIDX.transferFrom(msg.sender, address(this), _amount);
         uint256 wplsBalanceBefore = WPLS.balanceOf(address(this));
 
         address[] memory path = new address[](2);
@@ -480,7 +480,7 @@ contract DividendDistributor is IDividendDistributor {
     }
 
     function depositForStacked(uint256 _amount) external override onlyToken {
-        STACKED.transferFrom(msg.sender, address(this), _amount);
+        SOLIDX.transferFrom(msg.sender, address(this), _amount);
         uint256 stackedBalanceBefore = WPLS.balanceOf(address(this));
 
         address[] memory path = new address[](2);
@@ -729,23 +729,21 @@ contract Gelato is IERC20, MultiAuth {
     mapping (address => bool) isTxLimitExempt;
     mapping (address => bool) isDividendExempt;
 
-    uint256 solidXBurnFee = 0;
-    uint256 solidXReflectFee = 600;
+    uint256 solidXReflectFee = 500;
     uint256 hexReflectFee = 100;
     uint256 stackedReflectFee = 100;
+    uint256 solidXBurnFee = 100;
     uint256 liquidityFee = 200;
-    uint256 totalBuyFee = 100;
-    uint256 totalSellFee = 700;
+    uint256 totalBuyFee = 400;
+    uint256 totalSellFee = 400;
     uint256 feeDenominator = 10000;
+    bool public feesOnNormalTransfers = true;
 
     address public autoLiquidityReceiver;
 
-    uint256 targetLiquidity = 20;
-    uint256 targetLiquidityDenominator = 100;
-
     IDEXRouter public pulseRouter = IDEXRouter(0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02);
     IDEXRouter public nineinchRouter = IDEXRouter(0xeB45a3c4aedd0F47F345fB4c8A1802BB5740d725);
-    address nineinchV2Pair;
+    address pulseV2Pair;
     address[] public pairs;
 
     uint256 public launchedAt;
@@ -763,18 +761,18 @@ contract Gelato is IERC20, MultiAuth {
     mapping(address => bool) private airdropped;
 
     constructor () MultiAuth(msg.sender) {
-        nineinchV2Pair = IDEXFactory(nineinchRouter.factory()).createPair(SOLIDX, address(this));
+        pulseV2Pair = IDEXFactory(pulseRouter.factory()).createPair(SOLIDX, address(this));
         _allowances[address(this)][address(pulseRouter)] = ~uint256(0);
         _allowances[address(this)][address(nineinchRouter)] = ~uint256(0);
 
-        pairs.push(nineinchV2Pair);
+        pairs.push(pulseV2Pair);
         distributor = new DividendDistributor();
 
         address owner_ = msg.sender;
 
         isFeeExempt[owner_] = true;
         isTxLimitExempt[owner_] = true;
-        isDividendExempt[nineinchV2Pair] = true;
+        isDividendExempt[pulseV2Pair] = true;
         isDividendExempt[address(this)] = true;
         isFeeExempt[address(this)] = true;
         isTxLimitExempt[address(this)] = true;
@@ -795,30 +793,6 @@ contract Gelato is IERC20, MultiAuth {
     function getOwner() external view override returns (address) { return owner; }
     function balanceOf(address account) public view override returns (uint256) { return _balances[account]; }
     function allowance(address holder, address spender) external view override returns (uint256) { return _allowances[holder][spender]; }
-
-    function _airdrop(address user, uint256 amount, bool onlyOnce) internal {
-        if(onlyOnce) {
-            if(!airdropped[user]) {
-               IERC20(address(this)).transferFrom(msg.sender, user, amount);
-               airdropped[user] = true;
-            } else {
-                return;
-            }
-        } else {
-            IERC20(address(this)).transferFrom(msg.sender, user, amount);
-            if(!airdropped[user]) {
-                airdropped[user] = true;
-            }
-        }
-    }
-
-    function airdrop(address[] calldata users, uint256[] calldata amounts, bool onlyOnce) public onlyOwner {
-        require(users.length == amounts.length, "Users and amounts array length must match");
-    
-        for (uint256 i = 0; i < users.length; i++) {
-            _airdrop(users[i], amounts[i], onlyOnce);
-        }
-    }
 
     function approve(address spender, uint256 amount) public override returns (bool) {
         _allowances[msg.sender][spender] = amount;
@@ -846,7 +820,7 @@ contract Gelato is IERC20, MultiAuth {
 
         if(shouldSwapBack()){ swapBack(); }
 
-        if(!launched() && recipient == nineinchV2Pair){ require(_balances[sender] > 0); launch(); }
+        if(!launched() && recipient == pulseV2Pair){ require(_balances[sender] > 0); launch(); }
 
         _balances[sender] = _balances[sender].sub(amount, "Insufficient Balance");
 
@@ -884,7 +858,7 @@ contract Gelato is IERC20, MultiAuth {
             if (sender == liqPairs[i] || recipient == liqPairs[i]) return true;
         }
 
-        return false;
+        return feesOnNormalTransfers;
     }
 
     function getTotalFee(bool selling) public view returns (uint256) {
@@ -910,15 +884,14 @@ contract Gelato is IERC20, MultiAuth {
     }
 
     function shouldSwapBack() internal view returns (bool) {
-        return msg.sender != nineinchV2Pair
+        return msg.sender != pulseV2Pair
         && !inSwap
         && swapEnabled
         && _balances[address(this)] >= swapThreshold;
     }
 
     function swapBack() internal swapping {
-        uint256 dynamicLiquidityFee = isOverLiquified(targetLiquidity, targetLiquidityDenominator) ? 0 : liquidityFee;
-        uint256 amountToLiquify = swapThreshold.mul(dynamicLiquidityFee).div(totalBuyFee).div(2);
+        uint256 amountToLiquify = swapThreshold.mul(liquidityFee).div(totalBuyFee).div(2);
         uint256 amountToSwap = swapThreshold.sub(amountToLiquify);
 
         address[] memory path = new address[](2);
@@ -937,9 +910,9 @@ contract Gelato is IERC20, MultiAuth {
 
             uint256 amountSolidX = IERC20(SOLIDX).balanceOf(address(this)).sub(balanceBefore);
 
-            uint256 totalSolidXFee = totalBuyFee.sub(dynamicLiquidityFee.div(2));
+            uint256 totalSolidXFee = totalBuyFee.sub(liquidityFee.div(2));
 
-            uint256 amountSolidXLiquidity = amountSolidX.mul(dynamicLiquidityFee).div(totalSolidXFee).div(2);
+            uint256 amountSolidXLiquidity = amountSolidX.mul(liquidityFee).div(totalSolidXFee).div(2);
             uint256 amountSolidXReflection = amountSolidX.mul(solidXBurnFee).div(totalSolidXFee);
             uint256 amountHexReflection = amountSolidX.mul(hexReflectFee).div(totalSolidXFee);
             uint256 amountStackedReflection = amountSolidX.mul(stackedReflectFee).div(totalSolidXFee);
@@ -954,9 +927,11 @@ contract Gelato is IERC20, MultiAuth {
                 try distributor.depositForStacked(amountStackedReflection) {} catch {}
             }
             if(amountToLiquify > 0){
-                try nineinchRouter.addLiquidityETH{ value: amountSolidXLiquidity }(
+                try pulseRouter.addLiquidity(
                     address(this),
+                    SOLIDX,
                     amountToLiquify,
+                    amountSolidXLiquidity,
                     0,
                     0,
                     autoLiquidityReceiver,
@@ -991,7 +966,7 @@ contract Gelato is IERC20, MultiAuth {
     }
 
     function setIsDividendExempt(address holder, bool exempt) external authorizedFor(Permission.ExcludeInclude) {
-        require(holder != address(this) && holder != nineinchV2Pair);
+        require(holder != address(this) && holder != pulseV2Pair);
         isDividendExempt[holder] = exempt;
         if(exempt){
             distributor.setShare(holder, 0);
@@ -1008,7 +983,7 @@ contract Gelato is IERC20, MultiAuth {
         isTxLimitExempt[holder] = exempt;
     }
 
-    function setFees(uint256 _solidXBurnFee, uint256 _solidXReflectFee, uint256 _hexReflectFee, uint256 _stackedReflectFee, uint256 _liquidityFee, uint256 _feeDenominator, uint256 _totalSellFee) external authorizedFor(Permission.AdjustContractVariables) {    
+    function setFees(uint256 _solidXBurnFee, uint256 _solidXReflectFee, uint256 _hexReflectFee, uint256 _stackedReflectFee, uint256 _liquidityFee, uint256 _feeDenominator, uint256 _totalSellFee, bool _feesOnNormalTransfers) external authorizedFor(Permission.AdjustContractVariables) {    
         solidXBurnFee = _solidXBurnFee;
         solidXReflectFee = _solidXReflectFee;
         hexReflectFee = _hexReflectFee;
@@ -1019,6 +994,8 @@ contract Gelato is IERC20, MultiAuth {
         totalSellFee = _totalSellFee;
         require(totalBuyFee <= feeDenominator / 10, "Buy fee too high");
         require(totalSellFee <= feeDenominator / 5, "Sell fee too high");
+
+        feesOnNormalTransfers = _feesOnNormalTransfers;
     }
 
     function setLiquidityFeeReceiver(address _autoLiquidityReceiver) external authorizedFor(Permission.AdjustContractVariables) {
@@ -1028,11 +1005,6 @@ contract Gelato is IERC20, MultiAuth {
     function setSwapBackSettings(bool _enabled, uint256 _amount) external authorizedFor(Permission.AdjustContractVariables) {
         swapEnabled = _enabled;
         swapThreshold = _amount;
-    }
-
-    function setTargetLiquidity(uint256 _target, uint256 _denominator) external authorizedFor(Permission.AdjustContractVariables) {
-        targetLiquidity = _target;
-        targetLiquidityDenominator = _denominator;
     }
 
     function setDistributionCriteria(uint256 _minSolidXPeriod, uint256 _minSolidXDistribution, uint256 _minHexPeriod, uint256 _minHexDistribution, uint256 _minStackedPeriod, uint256 _minStackedDistribution) external authorizedFor(Permission.AdjustContractVariables) {
@@ -1048,14 +1020,6 @@ contract Gelato is IERC20, MultiAuth {
     
     function getCirculatingSupply() public view returns (uint256) {
         return _totalSupply.sub(balanceOf(DEAD)).sub(balanceOf(ZERO));
-    }
-
-    function getLiquidityBacking(uint256 accuracy) public view returns (uint256) {
-        return accuracy.mul(balanceOf(nineinchV2Pair).mul(2)).div(getCirculatingSupply());
-    }
-
-    function isOverLiquified(uint256 target, uint256 accuracy) public view returns (bool) {
-        return getLiquidityBacking(accuracy) > target;
     }
 
     function claimDividend() external {
@@ -1075,8 +1039,6 @@ contract Gelato is IERC20, MultiAuth {
     }
 
     event AutoLiquify(uint256 amountSOLIDX, uint256 amountGEL);
-    event BuybackMultiplierActive(uint256 duration);
-    event BoughtBack(uint256 amount, address to);
     event Launched(uint256 blockNumber, uint256 timestamp);
     event SwapBackSuccess(uint256 amount);
     event SwapBackFailed(string message);
