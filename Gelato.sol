@@ -742,7 +742,6 @@ contract Gelato is IERC20, MultiAuth {
     address public autoLiquidityReceiver;
 
     IDEXRouter public pulseRouter = IDEXRouter(0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02);
-    IDEXRouter public nineinchRouter = IDEXRouter(0xeB45a3c4aedd0F47F345fB4c8A1802BB5740d725);
     address pulseV2Pair;
     address[] public pairs;
 
@@ -763,7 +762,6 @@ contract Gelato is IERC20, MultiAuth {
     constructor () MultiAuth(msg.sender) {
         pulseV2Pair = IDEXFactory(pulseRouter.factory()).createPair(SOLIDX, address(this));
         _allowances[address(this)][address(pulseRouter)] = ~uint256(0);
-        _allowances[address(this)][address(nineinchRouter)] = ~uint256(0);
 
         pairs.push(pulseV2Pair);
         distributor = new DividendDistributor();
@@ -947,7 +945,7 @@ contract Gelato is IERC20, MultiAuth {
         } catch Error(string memory e) {
             emit SwapBackFailed(string(abi.encodePacked("SwapBack failed with error ", e)));
         } catch {
-            emit SwapBackFailed("SwapBack failed without an error message from pancakeSwap");
+            emit SwapBackFailed("SwapBack failed without an error message from PulseX");
         }
     }
 
