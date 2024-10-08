@@ -381,7 +381,7 @@ contract DividendDistributor is IDividendDistributor {
     uint256 public hexDividendsPerShare;
     uint256 public hexDividendsPerShareAccuracyFactor = 10 ** 36;
     uint256 public minHexPeriod = 1 hours; // min 1 hour delay
-    uint256 public minHexDistribution = 50 * (10 ** 18); // 50 HEX minimum auto send
+    uint256 public minHexDistribution = 50 * (10 ** 8); // 50 HEX minimum auto send
 
     // Stacked Dividend Trackers
     uint256 currentStackedIndex;
@@ -732,8 +732,8 @@ contract Gelato is IERC20, MultiAuth {
     uint256 solidXReflectFee = 500;
     uint256 hexReflectFee = 100;
     uint256 stackedReflectFee = 100;
-    uint256 solidXBurnFee = 100;
     uint256 liquidityFee = 200;
+    uint256 solidXBurnFee = 100;
     uint256 totalBuyFee = 400;
     uint256 totalSellFee = 400;
     uint256 feeDenominator = 10000;
