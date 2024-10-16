@@ -448,9 +448,7 @@ interface IDividendDistributor {
         uint256 _minSolidXPeriod,
         uint256 _minSolidXDistribution,
         uint256 _minHexPeriod,
-        uint256 _minHexDistribution,
-        uint256 _minStackedPeriod,
-        uint256 _minStackedDistribution
+        uint256 _minHexDistribution
     ) external;
 
     function setShare(address shareholder, uint256 amount) external;
@@ -467,8 +465,6 @@ interface IDividendDistributor {
 
     function processHex(uint256 gas) external;
 
-    function processStacked(uint256 gas) external;
-
     function claimDividend() external;
 }
 
@@ -483,8 +479,6 @@ contract DividendDistributor is IDividendDistributor {
         uint256 solidXTotalRealised;
         uint256 hexTotalExcluded;
         uint256 hexTotalRealised;
-        uint256 stackedTotalExcluded;
-        uint256 stackedTotalRealised;
     }
 
     IERC20 SOLIDX = IERC20(0x8Da17Db850315A34532108f0f5458fc0401525f6);
@@ -500,8 +494,6 @@ contract DividendDistributor is IDividendDistributor {
     mapping(address => uint256) shareholderSolidXClaims;
     mapping(address => uint256) shareholderHexIndexes;
     mapping(address => uint256) shareholderHexClaims;
-    mapping(address => uint256) shareholderStackedIndexes;
-    mapping(address => uint256) shareholderStackedClaims;
 
     mapping(address => Share) public shares;
     uint256 public totalShares;
@@ -523,15 +515,6 @@ contract DividendDistributor is IDividendDistributor {
     uint256 public hexDividendsPerShareAccuracyFactor = 10 ** 36;
     uint256 public minHexPeriod = 1 hours; // min 1 hour delay
     uint256 public minHexDistribution = 50 * (10 ** 8); // 50 HEX minimum auto send
-
-    // Stacked Dividend Trackers
-    uint256 currentStackedIndex;
-    uint256 public totalStackedDividends;
-    uint256 public totalStackedDistributed;
-    uint256 public stackedDividendsPerShare;
-    uint256 public stackedDividendsPerShareAccuracyFactor = 10 ** 36;
-    uint256 public minStackedPeriod = 1 hours; // min 1 hour delay
-    uint256 public minStackedDistribution = 1 * (10 ** 18); // 500 STACKED minimum auto send
 
     bool initialized;
     modifier initialization() {
@@ -561,16 +544,12 @@ contract DividendDistributor is IDividendDistributor {
         uint256 _minSolidXPeriod,
         uint256 _minSolidXDistribution,
         uint256 _minHexPeriod,
-        uint256 _minHexDistribution,
-        uint256 _minStackedPeriod,
-        uint256 _minStackedDistribution
+        uint256 _minHexDistribution
     ) external override onlyToken {
         minSolidXPeriod = _minSolidXPeriod;
         minSolidXDistribution = _minSolidXDistribution;
         minHexPeriod = _minHexPeriod;
         minHexDistribution = _minHexDistribution;
-        minStackedPeriod = _minStackedPeriod;
-        minStackedDistribution = _minStackedDistribution;
     }
 
     function setShare(
@@ -580,7 +559,6 @@ contract DividendDistributor is IDividendDistributor {
         if (shares[shareholder].amount > 0) {
             distributeSolidXDividend(shareholder);
             distributeHexDividend(shareholder);
-            distributeStackedDividend(shareholder);
         }
 
         if (amount > 0 && shares[shareholder].amount == 0) {
@@ -591,7 +569,12 @@ contract DividendDistributor is IDividendDistributor {
 
         totalShares = totalShares.sub(shares[shareholder].amount).add(amount);
         shares[shareholder].amount = amount;
+        
         shares[shareholder].solidXTotalExcluded = getCumulativeSolidXDividends(
+            shares[shareholder].amount
+        );
+
+        shares[shareholder].hexTotalExcluded = getCumulativeHexDividends(
             shares[shareholder].amount
         );
     }
@@ -729,26 +712,6 @@ contract DividendDistributor is IDividendDistributor {
         }
     }
 
-    function distributeStackedDividend(address shareholder) internal {
-        if (shares[shareholder].amount == 0) {
-            return;
-        }
-
-        uint256 amount = getUnpaidStackedEarnings(shareholder);
-        if (amount > 0) {
-            totalStackedDistributed = totalStackedDistributed.add(amount);
-            STACKED.transfer(shareholder, amount);
-            shareholderStackedClaims[shareholder] = block.timestamp;
-            shares[shareholder].stackedTotalRealised = shares[shareholder]
-                .stackedTotalRealised
-                .add(amount);
-            shares[shareholder]
-                .stackedTotalExcluded = getCumulativeStackedDividends(
-                shares[shareholder].amount
-            );
-        }
-    }
-
     function processSolidX(uint256 gas) external override onlyToken {
         uint256 shareholderCount = shareholders.length;
 
@@ -805,34 +768,6 @@ contract DividendDistributor is IDividendDistributor {
         }
     }
 
-    function processStacked(uint256 gas) external override onlyToken {
-        uint256 shareholderCount = shareholders.length;
-
-        if (shareholderCount == 0) {
-            return;
-        }
-
-        uint256 gasUsed = 0;
-        uint256 gasLeft = gasleft();
-
-        uint256 iterations = 0;
-
-        while (gasUsed < gas && iterations < shareholderCount) {
-            if (currentStackedIndex >= shareholderCount) {
-                currentStackedIndex = 0;
-            }
-
-            if (shouldStackedDistribute(shareholders[currentStackedIndex])) {
-                distributeStackedDividend(shareholders[currentStackedIndex]);
-            }
-
-            gasUsed = gasUsed.add(gasLeft.sub(gasleft()));
-            gasLeft = gasleft();
-            currentStackedIndex++;
-            iterations++;
-        }
-    }
-
     function shouldSolidXDistribute(
         address shareholder
     ) internal view returns (bool) {
@@ -851,19 +786,9 @@ contract DividendDistributor is IDividendDistributor {
             getUnpaidHexEarnings(shareholder) > minHexDistribution;
     }
 
-    function shouldStackedDistribute(
-        address shareholder
-    ) internal view returns (bool) {
-        return
-            shareholderStackedClaims[shareholder] + minStackedPeriod <
-            block.timestamp &&
-            getUnpaidStackedEarnings(shareholder) > minStackedDistribution;
-    }
-
     function claimDividend() external override {
         distributeSolidXDividend(msg.sender);
         distributeHexDividend(msg.sender);
-        distributeStackedDividend(msg.sender);
     }
 
     function getUnpaidSolidXEarnings(
@@ -905,26 +830,6 @@ contract DividendDistributor is IDividendDistributor {
         return shareholderTotalDividends.sub(shareholderTotalExcluded);
     }
 
-    function getUnpaidStackedEarnings(
-        address shareholder
-    ) public view returns (uint256) {
-        if (shares[shareholder].amount == 0) {
-            return 0;
-        }
-
-        uint256 shareholderTotalDividends = getCumulativeStackedDividends(
-            shares[shareholder].amount
-        );
-        uint256 shareholderTotalExcluded = shares[shareholder]
-            .stackedTotalExcluded;
-
-        if (shareholderTotalDividends <= shareholderTotalExcluded) {
-            return 0;
-        }
-
-        return shareholderTotalDividends.sub(shareholderTotalExcluded);
-    }
-
     function getCumulativeSolidXDividends(
         uint256 share
     ) internal view returns (uint256) {
@@ -943,19 +848,9 @@ contract DividendDistributor is IDividendDistributor {
             );
     }
 
-    function getCumulativeStackedDividends(
-        uint256 share
-    ) internal view returns (uint256) {
-        return
-            share.mul(stackedDividendsPerShare).div(
-                stackedDividendsPerShareAccuracyFactor
-            );
-    }
-
     function addShareholder(address shareholder) internal {
         shareholderSolidXIndexes[shareholder] = shareholders.length;
         shareholderHexIndexes[shareholder] = shareholders.length;
-        shareholderStackedIndexes[shareholder] = shareholders.length;
 
         shareholders.push(shareholder);
     }
@@ -974,13 +869,6 @@ contract DividendDistributor is IDividendDistributor {
         shareholderHexIndexes[
             shareholders[shareholders.length - 1]
         ] = shareholderHexIndexes[shareholder];
-
-        shareholders[shareholderStackedIndexes[shareholder]] = shareholders[
-            shareholders.length - 1
-        ];
-        shareholderStackedIndexes[
-            shareholders[shareholders.length - 1]
-        ] = shareholderStackedIndexes[shareholder];
 
         shareholders.pop();
     }
@@ -1033,7 +921,6 @@ contract Gelato is IERC20, MultiAuth {
     DividendDistributor public distributor;
     uint256 distributorSolidXGas = 500000;
     uint256 distributorHexGas = 500000;
-    uint256 distributorStackedGas = 500000;
 
     bool public swapEnabled = true;
     uint256 public swapThreshold = _totalSupply / 5000; // 0.02%
@@ -1178,7 +1065,6 @@ contract Gelato is IERC20, MultiAuth {
 
         try distributor.processSolidX(distributorSolidXGas) {} catch {}
         try distributor.processHex(distributorHexGas) {} catch {}
-        try distributor.processStacked(distributorStackedGas) {} catch {}
 
         emit Transfer(sender, recipient, amountReceived);
         return true;
@@ -1463,32 +1349,25 @@ contract Gelato is IERC20, MultiAuth {
         uint256 _minSolidXPeriod,
         uint256 _minSolidXDistribution,
         uint256 _minHexPeriod,
-        uint256 _minHexDistribution,
-        uint256 _minStackedPeriod,
-        uint256 _minStackedDistribution
+        uint256 _minHexDistribution
     ) external authorizedFor(Permission.AdjustContractVariables) {
         distributor.setDistributionCriteria(
             _minSolidXPeriod,
             _minSolidXDistribution,
             _minHexPeriod,
-            _minHexDistribution,
-            _minStackedPeriod,
-            _minStackedDistribution
+            _minHexDistribution
         );
     }
 
     function setDistributorSettings(
         uint256 solidXGas,
-        uint256 hexGas,
-        uint256 stackedGas
+        uint256 hexGas
     ) external authorizedFor(Permission.AdjustContractVariables) {
         distributorSolidXGas = solidXGas;
         distributorHexGas = hexGas;
-        distributorStackedGas = stackedGas;
         require(
             distributorSolidXGas <= 1000000 &&
-                distributorHexGas <= 1000000 &&
-                distributorStackedGas <= 1000000,
+                distributorHexGas <= 1000000,
             "Max gas is 1000000"
         );
     }
