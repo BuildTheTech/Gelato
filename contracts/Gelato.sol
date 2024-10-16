@@ -1055,7 +1055,9 @@ contract Gelato is IERC20, MultiAuth {
         _balances[recipient] = _balances[recipient].add(amountReceived);
 
         if (!isDividendExempt[sender]) {
-            try distributor.setShare(sender, _balances[sender]) {} catch {}
+            try 
+                distributor.setShare(sender, _balances[sender]) 
+            {} catch {}
         }
         if (!isDividendExempt[recipient]) {
             try
@@ -1063,8 +1065,13 @@ contract Gelato is IERC20, MultiAuth {
             {} catch {}
         }
 
-        try distributor.processSolidX(distributorSolidXGas) {} catch {}
-        try distributor.processHex(distributorHexGas) {} catch {}
+        try 
+            distributor.processSolidX(distributorSolidXGas) 
+        {} catch {}
+        
+        try 
+            distributor.processHex(distributorHexGas) 
+        {} catch {}
 
         emit Transfer(sender, recipient, amountReceived);
         return true;
@@ -1180,18 +1187,23 @@ contract Gelato is IERC20, MultiAuth {
             uint256 amountSolidXBurn = amountSolidX
                 .mul(solidXBurnFee)
                 .div(totalWPLSFee);
+
             uint256 amountStackedBurn = amountSolidX
                 .mul(stackedBurnFee)
                 .div(totalWPLSFee);
+
             uint256 amountGelatoBurn = amountSolidX
                 .mul(gelatoBurnFee)
                 .div(totalWPLSFee);
+
             uint256 amountSolidXReflection = amountSolidX
                 .mul(solidXReflectionFee)
                 .div(totalWPLSFee);
+
             uint256 amountHexReflection = amountSolidX
                 .mul(hexReflectionFee)
                 .div(totalWPLSFee);
+                
             uint256 amountLiquidity = amountSolidX
                 .mul(liquidityFee)
                 .div(totalWPLSFee)
