@@ -1,6 +1,8 @@
 //SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.4;
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * Standard SafeMath, stripped down to just add/sub/mul/div
@@ -142,6 +144,25 @@ interface IDEXRouter {
         payable
         returns (uint amountToken, uint amountETH, uint liquidity);
 
+    function removeLiquidity(
+        address tokenA,
+        address tokenB,
+        uint liquidity,
+        uint amountAMin,
+        uint amountBMin,
+        address to,
+        uint deadline
+    ) external returns (uint amountA, uint amountB);
+
+    function removeLiquidityETH(
+        address token,
+        uint liquidity,
+        uint amountTokenMin,
+        uint amountETHMin,
+        address to,
+        uint deadline
+    ) external returns (uint amountToken, uint amountETH);
+
     function swapExactTokensForTokens(
         uint amountIn,
         uint amountOutMin,
@@ -149,6 +170,13 @@ interface IDEXRouter {
         address to,
         uint deadline
     ) external;
+
+    function swapExactETHForTokens(
+        uint amountOutMin,
+        address[] calldata path,
+        address to,
+        uint deadline
+    ) external payable;
 
     function swapExactTokensForTokensSupportingFeeOnTransferTokens(
         uint amountIn,
@@ -172,6 +200,31 @@ interface IDEXRouter {
         address to,
         uint deadline
     ) external;
+}
+
+interface IDividendDistributor {
+    function setDistributionCriteria(
+        uint256 _minSolidXPeriod,
+        uint256 _minSolidXDistribution,
+        uint256 _minHexPeriod,
+        uint256 _minHexDistribution
+    ) external;
+
+    function setShare(address shareholder, uint256 amount) external;
+
+    function depositForSolidXBurn() external payable;
+
+    function depositForStackedBurn() external payable;
+
+    function depositForSolidXReflection() external payable;
+
+    function depositForHexReflection() external payable;
+
+    function processSolidX(uint256 gas) external;
+
+    function processHex(uint256 gas) external;
+
+    function claimDividend() external;
 }
 
 enum Permission {
@@ -443,31 +496,6 @@ abstract contract MultiAuth {
     );
 }
 
-interface IDividendDistributor {
-    function setDistributionCriteria(
-        uint256 _minSolidXPeriod,
-        uint256 _minSolidXDistribution,
-        uint256 _minHexPeriod,
-        uint256 _minHexDistribution
-    ) external;
-
-    function setShare(address shareholder, uint256 amount) external;
-
-    function depositForSolidXBurn(uint256 amount) external;
-
-    function depositForStackedBurn(uint256 amount) external;
-
-    function depositForSolidXReflection(uint256 amount) external;
-
-    function depositForHexReflection(uint256 amount) external;
-
-    function processSolidX(uint256 gas) external;
-
-    function processHex(uint256 gas) external;
-
-    function claimDividend() external;
-}
-
 contract DividendDistributor is IDividendDistributor {
     using SafeMath for uint256;
 
@@ -498,7 +526,7 @@ contract DividendDistributor is IDividendDistributor {
     mapping(address => Share) public shares;
     uint256 public totalShares;
 
-    // SolidX Dividend Trackers
+    // SolidX Trackers
     uint256 currentSolidXIndex;
     uint256 public totalSolidXDividends;
     uint256 public totalSolidXDistributed;
@@ -506,6 +534,7 @@ contract DividendDistributor is IDividendDistributor {
     uint256 public solidXDividendsPerShareAccuracyFactor = 10 ** 36;
     uint256 public minSolidXPeriod = 1 hours; // min 1 hour delay
     uint256 public minSolidXDistribution = (1 * (10 ** 18)) / 10; // 0.1 SOLIDX minimum auto send
+    uint256 public totalSolidXBurned;
 
     // HEX Dividend Trackers
     uint256 currentHexIndex;
@@ -514,9 +543,13 @@ contract DividendDistributor is IDividendDistributor {
     uint256 public hexDividendsPerShare;
     uint256 public hexDividendsPerShareAccuracyFactor = 10 ** 36;
     uint256 public minHexPeriod = 1 hours; // min 1 hour delay
-    uint256 public minHexDistribution = 50 * (10 ** 8); // 50 HEX minimum auto send
+    uint256 public minHexDistribution = 100 * (10 ** 8); // 100 HEX minimum auto send
+
+    // Stacked Italian Trackers
+    uint256 public totalStackedBurned;
 
     bool initialized;
+
     modifier initialization() {
         require(!initialized);
         _;
@@ -536,8 +569,8 @@ contract DividendDistributor is IDividendDistributor {
             ? IDEXRouter(_nineinchRouter)
             : IDEXRouter(0xeB45a3c4aedd0F47F345fB4c8A1802BB5740d725);
         _token = msg.sender;
-        WPLS.approve(address(pulseRouter), type(uint256).max);
-        WPLS.approve(address(nineinchRouter), type(uint256).max);
+
+        STACKED.approve(address(STACKED), type(uint256).max);
     }
 
     function setDistributionCriteria(
@@ -569,7 +602,7 @@ contract DividendDistributor is IDividendDistributor {
 
         totalShares = totalShares.sub(shares[shareholder].amount).add(amount);
         shares[shareholder].amount = amount;
-        
+
         shares[shareholder].solidXTotalExcluded = getCumulativeSolidXDividends(
             shares[shareholder].amount
         );
@@ -579,86 +612,84 @@ contract DividendDistributor is IDividendDistributor {
         );
     }
 
-    function depositForSolidXBurn(uint256 _amount) external override onlyToken {
-        WPLS.transferFrom(msg.sender, address(this), _amount);
-
+    function depositForSolidXBurn() external payable override onlyToken {
         uint256 solidXBefore = SOLIDX.balanceOf(address(this));
-        
+
         address[] memory path = new address[](2);
         path[0] = address(WPLS);
         path[1] = address(SOLIDX);
-            
-        nineinchRouter.swapExactTokensForTokens(
-            _amount,
+
+        nineinchRouter.swapExactETHForTokens{value: msg.value}(
             0,
             path,
             address(this),
             block.timestamp
         );
 
-        uint256 solidXGained = SOLIDX.balanceOf(address(this)).sub(solidXBefore);
+        uint256 solidXGained = SOLIDX.balanceOf(address(this)).sub(
+            solidXBefore
+        );
 
-        ISOLIDX(address(SOLIDX)).burn(solidXGained); 
+        ISOLIDX(address(SOLIDX)).burn(solidXGained);
+        totalSolidXBurned = totalSolidXBurned.add(solidXGained);
     }
 
-    function depositForStackedBurn(uint256 _amount) external override onlyToken {
-        WPLS.transferFrom(msg.sender, address(this), _amount);
+    function depositForStackedBurn() external payable override onlyToken {
         uint256 stackedBalanceBefore = STACKED.balanceOf(address(this));
 
         address[] memory path = new address[](2);
         path[0] = address(WPLS);
         path[1] = address(STACKED);
 
-        nineinchRouter.swapExactTokensForTokens(
-            _amount,
+        nineinchRouter.swapExactETHForTokens{value: msg.value}(
             0,
             path,
             address(this),
             block.timestamp
         );
 
-        uint256 stackedAmount = STACKED.balanceOf(address(this)).sub(
+        uint256 stackedGained = STACKED.balanceOf(address(this)).sub(
             stackedBalanceBefore
         );
 
-        ISTACKED(address(STACKED)).burn(stackedAmount);
+        ISTACKED(address(STACKED)).burn(stackedGained);
+        totalStackedBurned = totalStackedBurned.add(stackedGained);
     }
 
-    function depositForSolidXReflection(uint256 _amount) external override onlyToken {
-        WPLS.transferFrom(msg.sender, address(this), _amount);
-
+    function depositForSolidXReflection() external payable override onlyToken {
         uint256 solidXBalanceBefore = SOLIDX.balanceOf(address(this));
 
         address[] memory path = new address[](2);
         path[0] = address(WPLS);
         path[1] = address(SOLIDX);
 
-        nineinchRouter.swapExactTokensForTokens(
-            _amount,
+        nineinchRouter.swapExactETHForTokens{value: msg.value}(
             0,
             path,
             address(this),
             block.timestamp
         );
 
-        uint256 solidXGained = SOLIDX.balanceOf(address(this)).sub(solidXBalanceBefore);
+        uint256 solidXGained = SOLIDX.balanceOf(address(this)).sub(
+            solidXBalanceBefore
+        );
 
         totalSolidXDividends = totalSolidXDividends.add(solidXGained);
         solidXDividendsPerShare = solidXDividendsPerShare.add(
-        solidXDividendsPerShareAccuracyFactor.mul(solidXGained).div(totalShares)
+            solidXDividendsPerShareAccuracyFactor.mul(solidXGained).div(
+                totalShares
+            )
         );
     }
 
-    function depositForHexReflection(uint256 _amount) external override onlyToken {
-        WPLS.transferFrom(msg.sender, address(this), _amount);
+    function depositForHexReflection() external payable override onlyToken {
         uint256 hexBalanceBefore = HEX.balanceOf(address(this));
 
         address[] memory path = new address[](2);
         path[0] = address(WPLS);
         path[1] = address(HEX);
 
-        pulseRouter.swapExactTokensForTokens(
-            _amount,
+        pulseRouter.swapExactETHForTokens{value: msg.value}(
             0,
             path,
             address(this),
@@ -669,7 +700,7 @@ contract DividendDistributor is IDividendDistributor {
 
         totalHexDividends = totalHexDividends.add(hexGained);
         hexDividendsPerShare = hexDividendsPerShare.add(
-        hexDividendsPerShareAccuracyFactor.mul(hexGained).div(totalShares)
+            hexDividendsPerShareAccuracyFactor.mul(hexGained).div(totalShares)
         );
     }
 
@@ -872,9 +903,11 @@ contract DividendDistributor is IDividendDistributor {
 
         shareholders.pop();
     }
+
+    receive() external payable {}
 }
 
-contract Gelato is IERC20, MultiAuth {
+contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
     using SafeMath for uint256;
 
     address WPLS = 0xA1077a294dDE1B09bB078844df40758a5D0f9a27;
@@ -898,12 +931,12 @@ contract Gelato is IERC20, MultiAuth {
     mapping(address => bool) isTxLimitExempt;
     mapping(address => bool) isDividendExempt;
 
-    uint256 solidXBurnFee = 500;
+    uint256 solidXBurnFee = 100;
     uint256 stackedBurnFee = 100;
     uint256 gelatoBurnFee = 100;
-    uint256 solidXReflectionFee = 100;
-    uint256 hexReflectionFee = 100;
-    uint256 liquidityFee = 100;
+    uint256 solidXReflectionFee = 200;
+    uint256 hexReflectionFee = 200;
+    uint256 liquidityFee = 300;
     uint256 totalBuyFee = 400;
     uint256 totalSellFee = 400;
     uint256 feeDenominator = 10000;
@@ -912,7 +945,7 @@ contract Gelato is IERC20, MultiAuth {
     address public autoLiquidityReceiver;
 
     IDEXRouter public pulseRouter;
-    
+
     address pulseV2Pair;
     address[] public pairs;
 
@@ -933,18 +966,25 @@ contract Gelato is IERC20, MultiAuth {
 
     mapping(address => bool) private airdropped;
 
-    constructor(address _nineinchRouter) MultiAuth(msg.sender) {
-        pulseRouter = IDEXRouter(0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02);
+    uint256 public totalGelBurned;
+    uint256 public totalPlsLpAdded;
+    uint256 public totalGelLpAdded;
+
+    constructor(
+        address _pulseRouter,
+        address _nineinchRouter
+    ) MultiAuth(msg.sender) {
+        pulseRouter = _pulseRouter != address(0)
+            ? IDEXRouter(_pulseRouter)
+            : IDEXRouter(0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02);
         pulseV2Pair = IDEXFactory(pulseRouter.factory()).createPair(
             WPLS,
             address(this)
         );
-        _allowances[address(this)][address(pulseRouter)] = ~uint256(0);
+        _allowances[address(this)][address(pulseRouter)] = type(uint256).max;
 
         pairs.push(pulseV2Pair);
-        distributor = new DividendDistributor(address(pulseRouter), _nineinchRouter);
-
-        IERC20(WPLS).approve(address(distributor), type(uint256).max);
+        distributor = new DividendDistributor(_pulseRouter, _nineinchRouter);
 
         address owner_ = msg.sender;
 
@@ -1055,9 +1095,7 @@ contract Gelato is IERC20, MultiAuth {
         _balances[recipient] = _balances[recipient].add(amountReceived);
 
         if (!isDividendExempt[sender]) {
-            try 
-                distributor.setShare(sender, _balances[sender]) 
-            {} catch {}
+            try distributor.setShare(sender, _balances[sender]) {} catch {}
         }
         if (!isDividendExempt[recipient]) {
             try
@@ -1065,13 +1103,9 @@ contract Gelato is IERC20, MultiAuth {
             {} catch {}
         }
 
-        try 
-            distributor.processSolidX(distributorSolidXGas) 
-        {} catch {}
-        
-        try 
-            distributor.processHex(distributorHexGas) 
-        {} catch {}
+        try distributor.processSolidX(distributorSolidXGas) {} catch {}
+
+        try distributor.processHex(distributorHexGas) {} catch {}
 
         emit Transfer(sender, recipient, amountReceived);
         return true;
@@ -1153,92 +1187,124 @@ contract Gelato is IERC20, MultiAuth {
     }
 
     function swapBack() internal swapping {
-        uint256 denominator = 1000;
-        uint256 amountToLiquify = swapThreshold
+        uint256 amountGelLiquidity = swapThreshold
             .mul(liquidityFee)
-            .div(denominator)
+            .mul(10)
+            .div(feeDenominator)
             .div(2);
-        uint256 amountToBurn = swapThreshold
-            .mul(gelatoBurnFee)
-            .div(denominator);
-        uint256 amountToSwap = swapThreshold.sub(amountToLiquify).sub(amountToBurn);
+
+        uint256 amountGelBurn = swapThreshold.mul(gelatoBurnFee).mul(10).div(
+            feeDenominator
+        );
+
+        if (amountGelBurn > 0) {
+            _transferFrom(address(this), ZERO, amountGelBurn);
+            totalGelBurned = totalGelBurned.add(amountGelBurn);
+        }
+
+        uint256 amountGelSwap = swapThreshold.sub(amountGelLiquidity).sub(
+            amountGelBurn
+        );
+
+        uint256 balanceBefore = address(this).balance;
 
         address[] memory path = new address[](2);
         path[0] = address(this);
-        path[1] = WPLS;
-
-        uint256 balanceBefore = IERC20(WPLS).balanceOf(address(this));
+        path[1] = address(WPLS);
 
         try
-            pulseRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens(
-                amountToSwap,
+            pulseRouter.swapExactTokensForETHSupportingFeeOnTransferTokens(
+                amountGelSwap,
                 0,
                 path,
                 address(this),
                 block.timestamp
             )
         {
-            uint256 amountSolidX = IERC20(WPLS).balanceOf(address(this)).sub(
-                balanceBefore
-            );
+            uint256 amountPls = address(this).balance.sub(balanceBefore);
 
-            uint256 totalWPLSFee = denominator.sub(liquidityFee.div(2));
-
-            uint256 amountSolidXBurn = amountSolidX
-                .mul(solidXBurnFee)
-                .div(totalWPLSFee);
-
-            uint256 amountStackedBurn = amountSolidX
-                .mul(stackedBurnFee)
-                .div(totalWPLSFee);
-
-            uint256 amountGelatoBurn = amountSolidX
-                .mul(gelatoBurnFee)
-                .div(totalWPLSFee);
-
-            uint256 amountSolidXReflection = amountSolidX
-                .mul(solidXReflectionFee)
-                .div(totalWPLSFee);
-
-            uint256 amountHexReflection = amountSolidX
-                .mul(hexReflectionFee)
-                .div(totalWPLSFee);
-                
-            uint256 amountLiquidity = amountSolidX
+            uint256 amountPlsLiquidity = amountPls
                 .mul(liquidityFee)
-                .div(totalWPLSFee)
+                .mul(10)
+                .div(feeDenominator)
                 .div(2);
+
+            if (amountGelLiquidity > 0) {
+                try
+                    pulseRouter.addLiquidityETH{value: amountPlsLiquidity}(
+                        address(this),
+                        amountGelLiquidity,
+                        0,
+                        amountPlsLiquidity,
+                        autoLiquidityReceiver,
+                        block.timestamp
+                    )
+                {
+                    totalPlsLpAdded = totalPlsLpAdded.add(amountPlsLiquidity);
+                    totalGelLpAdded = totalGelLpAdded.add(amountGelLiquidity);
+                    emit AutoLiquify(amountGelLiquidity, amountPlsLiquidity);
+                } catch {
+                    emit AutoLiquify(0, 0);
+                }
+            }
+
+            uint256 amountSolidXBurn = amountPls.mul(solidXBurnFee).mul(10).div(
+                feeDenominator
+            );
 
             if (amountSolidXBurn > 0) {
                 try
-                    distributor.depositForSolidXBurn(amountSolidXBurn)
+                    distributor.depositForSolidXBurn{value: amountSolidXBurn}()
                 {} catch {}
-            }
-            if (amountStackedBurn > 0) {
-                try
-                    distributor.depositForStackedBurn(amountStackedBurn)
-                {} catch {}
-            }
-            if (amountGelatoBurn > 0) {
-                try 
-                    IERC20(address(this)).transfer(ZERO, amountGelatoBurn)
-                {} catch {}
-            }
-            if (amountSolidXReflection > 0) {
-                try
-                    distributor.depositForSolidXReflection(amountSolidXReflection)
-                {} catch {}
-            }
-            if (amountHexReflection > 0) {
-                try 
-                    distributor.depositForHexReflection(amountHexReflection)
-                {} catch {}
-            }
-            if (amountToLiquify > 0) {
-                    addLiquidity(amountToLiquify, amountLiquidity);
             }
 
-            emit SwapBackSuccess(amountToSwap);
+            uint256 amountStackedBurn = amountPls
+                .mul(stackedBurnFee)
+                .mul(10)
+                .div(feeDenominator);
+
+            if (amountStackedBurn > 0) {
+                try
+                    distributor.depositForStackedBurn{
+                        value: amountStackedBurn
+                    }()
+                {} catch {}
+            }
+
+            uint256 amountSolidXReflection = amountPls
+                .mul(solidXReflectionFee)
+                .mul(10)
+                .div(feeDenominator);
+
+            if (amountSolidXReflection > 0) {
+                try
+                    distributor.depositForSolidXReflection{
+                        value: amountSolidXReflection
+                    }()
+                {} catch {}
+            }
+
+            uint256 amountHexReflection = amountPls
+                .mul(hexReflectionFee)
+                .mul(10)
+                .div(feeDenominator);
+
+            if (amountHexReflection > 0) {
+                try
+                    distributor.depositForHexReflection{
+                        value: amountHexReflection
+                    }()
+                {} catch {}
+            }
+
+            // Any dust amounts of PLS in contract gets sent to owner for good accounting
+            if (address(this).balance > 0) {
+                payable(owner).call{value: address(this).balance, gas: 30000}(
+                    ""
+                );
+            }
+
+            emit SwapBackSuccess(amountGelSwap);
         } catch Error(string memory e) {
             emit SwapBackFailed(
                 string(abi.encodePacked("SwapBack failed with error ", e))
@@ -1257,25 +1323,6 @@ contract Gelato is IERC20, MultiAuth {
     function launch() internal {
         launchedAt = block.number;
         emit Launched(block.number, block.timestamp);
-    }
-
-    function addLiquidity(uint256 amountGel, uint256 amountWPLS) internal {
-        try
-            pulseRouter.addLiquidity(
-                address(this),
-                WPLS,
-                amountGel,
-                amountWPLS,
-                0,
-                0,
-                autoLiquidityReceiver,
-                block.timestamp
-            )
-        {
-            emit AutoLiquify(amountGel, amountWPLS);
-        } catch {
-            emit AutoLiquify(0, 0);
-        }
     }
 
     function setTxLimit(
@@ -1331,12 +1378,15 @@ contract Gelato is IERC20, MultiAuth {
         liquidityFee = _liquidityFee;
         totalBuyFee = _totalBuyFee;
         totalSellFee = _totalSellFee;
-        require(solidXBurnFee
-            .add(stackedBurnFee)
-            .add(gelatoBurnFee)
-            .add(solidXReflectionFee)
-            .add(hexReflectionFee)
-            .add(liquidityFee) <= 1000, "The total of all combined fees must be 1000 for 100 percent.");
+        require(
+            solidXBurnFee
+                .add(stackedBurnFee)
+                .add(gelatoBurnFee)
+                .add(solidXReflectionFee)
+                .add(hexReflectionFee)
+                .add(liquidityFee) <= feeDenominator / 10,
+            "The total of all combined fees must be 1000 for 100 percent."
+        );
         require(totalBuyFee <= feeDenominator / 10, "Buy fee too high");
         require(totalSellFee <= feeDenominator / 10, "Sell fee too high");
 
@@ -1378,8 +1428,7 @@ contract Gelato is IERC20, MultiAuth {
         distributorSolidXGas = solidXGas;
         distributorHexGas = hexGas;
         require(
-            distributorSolidXGas <= 1000000 &&
-                distributorHexGas <= 1000000,
+            distributorSolidXGas <= 1000000 && distributorHexGas <= 1000000,
             "Max gas is 1000000"
         );
     }
@@ -1390,6 +1439,83 @@ contract Gelato is IERC20, MultiAuth {
 
     function claimDividend() external {
         distributor.claimDividend();
+    }
+
+    function addLiquidity(
+        uint256 gelAmount,
+        uint256 deadline
+    ) public payable nonReentrant {
+        _transferFrom(msg.sender, address(this), gelAmount);
+
+        // Track starting balances
+        uint256 plsBefore = address(this).balance;
+        uint256 gelBefore = balanceOf(address(this));
+
+        pulseRouter.addLiquidityETH{value: msg.value}(
+            address(this),
+            gelAmount,
+            0,
+            msg.value,
+            msg.sender,
+            deadline
+        );
+
+        // Calculate after balances
+        uint256 plsRemaining = address(this).balance.sub(plsBefore);
+        uint256 gelRemaining = balanceOf(address(this)).sub(gelBefore);
+
+        if (plsRemaining > 0) {
+            (bool success, ) = payable(msg.sender).call{
+                value: plsRemaining,
+                gas: 30000
+            }("");
+            require(success, "PLS transfer failed");
+        }
+
+        if (gelRemaining > 0) {
+            _transferFrom(address(this), msg.sender, gelRemaining);
+        }
+    }
+
+    function removeLiquidity(
+        uint256 lpAmount,
+        uint256 deadline
+    ) public nonReentrant {
+        IERC20(pulseV2Pair).transferFrom(msg.sender, address(this), lpAmount);
+        IERC20(pulseV2Pair).approve(address(pulseRouter), lpAmount);
+
+        isFeeExempt[msg.sender] = true;
+
+        // Track starting balances
+        uint256 plsBefore = address(this).balance;
+        uint256 gelBefore = balanceOf(address(this));
+
+        pulseRouter.removeLiquidityETH(
+            address(this),
+            lpAmount,
+            0,
+            0,
+            msg.sender,
+            deadline
+        );
+
+        isFeeExempt[msg.sender] = false;
+
+        // Calculate after balances
+        uint256 plsRemaining = address(this).balance.sub(plsBefore);
+        uint256 gelRemaining = balanceOf(address(this)).sub(gelBefore);
+
+        if (plsRemaining > 0) {
+            (bool success, ) = payable(msg.sender).call{
+                value: plsRemaining,
+                gas: 30000
+            }("");
+            require(success, "PLS transfer failed");
+        }
+
+        if (gelRemaining > 0) {
+            _transferFrom(address(this), msg.sender, gelRemaining);
+        }
     }
 
     function addPair(
