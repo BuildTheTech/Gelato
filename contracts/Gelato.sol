@@ -931,14 +931,14 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
     mapping(address => bool) isTxLimitExempt;
     mapping(address => bool) isDividendExempt;
 
-    uint256 solidXBurnFee = 100;
-    uint256 stackedBurnFee = 100;
-    uint256 gelatoBurnFee = 100;
-    uint256 solidXReflectionFee = 200;
-    uint256 hexReflectionFee = 200;
-    uint256 liquidityFee = 300;
-    uint256 totalBuyFee = 400;
-    uint256 totalSellFee = 400;
+    uint256 public solidXBurnFee = 100;
+    uint256 public stackedBurnFee = 100;
+    uint256 public gelatoBurnFee = 100;
+    uint256 public solidXReflectionFee = 200;
+    uint256 public hexReflectionFee = 200;
+    uint256 public liquidityFee = 300;
+    uint256 public totalBuyFee = 400;
+    uint256 public totalSellFee = 400;
     uint256 feeDenominator = 10000;
     bool public feesOnNormalTransfers = true;
 
