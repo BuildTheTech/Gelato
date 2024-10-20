@@ -21,9 +21,10 @@ async function deployGelato(richSigner) {
   console.log("Deploying Gelato contract from Rich Account...");
 
   const Gelato = await ethers.getContractFactory("Gelato", richSigner);
-  const pulseRouter = "0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02";
+  const pulseRouterV1 = "0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02";
+  const pulseRouterV2 = "0x165C3410fC91EF562C50559f7d2289fEbed552d9";
   const nineinchRouter = "0xeB45a3c4aedd0F47F345fB4c8A1802BB5740d725"
-  const gelato = await Gelato.deploy(pulseRouter, nineinchRouter);
+  const gelato = await Gelato.deploy(pulseRouterV1, pulseRouterV2, nineinchRouter);
 
   const distributorAddress = await gelato.distributor();
   const gelatoAddress = gelato.target;
@@ -37,7 +38,7 @@ async function deployGelato(richSigner) {
 async function addLiquidityToRouter(gelato, wplsAmount, richSigner) {
   console.log("Adding liquidity to the PulseRouter from Rich Account...");
 
-  const pulseRouterAddress = "0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02";
+  const pulseRouterAddress = "0x165C3410fC91EF562C50559f7d2289fEbed552d9";
   const wplsAddress = "0xA1077a294dDE1B09bB078844df40758a5D0f9a27";
 
   const pulseRouter = await ethers.getContractAt("IUniswapV2Router02", pulseRouterAddress, richSigner);
@@ -232,7 +233,7 @@ describe("PulseChain Fork Test with Gelato and Reflection Fees", function () {
     distributor = await ethers.getContractAt("DividendDistributor", distributorAddress, richSigner);
 
     const wplsAmount = ethers.parseUnits("10000000000", 18);
-    pulseRouter = await ethers.getContractAt("IUniswapV2Router02", "0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02", richSigner);
+    pulseRouter = await ethers.getContractAt("IUniswapV2Router02", "0x165C3410fC91EF562C50559f7d2289fEbed552d9", richSigner);
     await addLiquidityToRouter(gelato, wplsAmount, richSigner);
 
     wallets = Array.from({ length: 25 }, () => ethers.Wallet.createRandom().connect(ethers.provider));

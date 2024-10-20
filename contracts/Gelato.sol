@@ -1,6 +1,6 @@
 //SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.20;
+pragma solidity 0.8.20;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -568,11 +568,13 @@ contract DividendDistributor is IDividendDistributor {
             : IDEXRouter(0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02);
         pulseRouterV2 = _pulseRouterV2 != address(0)
             ? IDEXRouter(_pulseRouterV2)
-            : IDEXRouter(0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02);
+            : IDEXRouter(0x165C3410fC91EF562C50559f7d2289fEbed552d9);
         nineinchRouter = _nineinchRouter != address(0)
             ? IDEXRouter(_nineinchRouter)
             : IDEXRouter(0xeB45a3c4aedd0F47F345fB4c8A1802BB5740d725);
         _token = msg.sender;
+
+        STACKED.approve(address(STACKED), type(uint256).max);
     }
 
     function setDistributionCriteria(
