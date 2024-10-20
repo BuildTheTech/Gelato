@@ -514,7 +514,8 @@ contract DividendDistributor is IDividendDistributor {
     IERC20 STACKED = IERC20(0x67d8954C2B7386c8Dbf6936Cc2355bA2227F0a8f);
     IERC20 WPLS = IERC20(0xA1077a294dDE1B09bB078844df40758a5D0f9a27);
     address ZERO = 0x0000000000000000000000000000000000000000;
-    IDEXRouter public pulseRouter;
+    IDEXRouter public pulseRouterV1;
+    IDEXRouter public pulseRouterV2;
     IDEXRouter public nineinchRouter;
 
     address[] shareholders;
@@ -561,16 +562,17 @@ contract DividendDistributor is IDividendDistributor {
         _;
     }
 
-    constructor(address _pulseRouter, address _nineinchRouter) {
-        pulseRouter = _pulseRouter != address(0)
-            ? IDEXRouter(_pulseRouter)
+    constructor(address _pulseRouterV1, address _pulseRouterV2, address _nineinchRouter) {
+        pulseRouterV1 = _pulseRouterV1 != address(0)
+            ? IDEXRouter(_pulseRouterV1)
+            : IDEXRouter(0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02);
+        pulseRouterV2 = _pulseRouterV2 != address(0)
+            ? IDEXRouter(_pulseRouterV2)
             : IDEXRouter(0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02);
         nineinchRouter = _nineinchRouter != address(0)
             ? IDEXRouter(_nineinchRouter)
             : IDEXRouter(0xeB45a3c4aedd0F47F345fB4c8A1802BB5740d725);
         _token = msg.sender;
-
-        STACKED.approve(address(STACKED), type(uint256).max);
     }
 
     function setDistributionCriteria(
@@ -689,7 +691,7 @@ contract DividendDistributor is IDividendDistributor {
         path[0] = address(WPLS);
         path[1] = address(HEX);
 
-        pulseRouter.swapExactETHForTokens{value: msg.value}(
+        pulseRouterV1.swapExactETHForTokens{value: msg.value}(
             0,
             path,
             address(this),
@@ -944,7 +946,8 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
 
     address public autoLiquidityReceiver;
 
-    IDEXRouter public pulseRouter;
+    IDEXRouter public pulseRouterV1;
+    IDEXRouter public pulseRouterV2;
 
     address pulseV2Pair;
     address[] public pairs;
@@ -971,20 +974,24 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
     uint256 public totalGelLpAdded;
 
     constructor(
-        address _pulseRouter,
+        address _pulseRouterV1,
+        address _pulseRouterV2,
         address _nineinchRouter
     ) MultiAuth(msg.sender) {
-        pulseRouter = _pulseRouter != address(0)
-            ? IDEXRouter(_pulseRouter)
+        pulseRouterV1 = _pulseRouterV1 != address(0)
+            ? IDEXRouter(_pulseRouterV1)
             : IDEXRouter(0x98bf93ebf5c380C0e6Ae8e192A7e2AE08edAcc02);
-        pulseV2Pair = IDEXFactory(pulseRouter.factory()).createPair(
+        pulseRouterV2 = _pulseRouterV2 != address(0)
+            ? IDEXRouter(_pulseRouterV2)
+            : IDEXRouter(0x165C3410fC91EF562C50559f7d2289fEbed552d9);
+        pulseV2Pair = IDEXFactory(pulseRouterV2.factory()).createPair(
             WPLS,
             address(this)
         );
-        _allowances[address(this)][address(pulseRouter)] = type(uint256).max;
+        _allowances[address(this)][address(pulseRouterV2)] = type(uint256).max;
 
         pairs.push(pulseV2Pair);
-        distributor = new DividendDistributor(_pulseRouter, _nineinchRouter);
+        distributor = new DividendDistributor(_pulseRouterV1, _pulseRouterV2, _nineinchRouter);
 
         address owner_ = msg.sender;
 
@@ -1213,7 +1220,7 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
         path[1] = address(WPLS);
 
         try
-            pulseRouter.swapExactTokensForETHSupportingFeeOnTransferTokens(
+            pulseRouterV2.swapExactTokensForETHSupportingFeeOnTransferTokens(
                 amountGelSwap,
                 0,
                 path,
@@ -1231,7 +1238,7 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
 
             if (amountGelLiquidity > 0) {
                 try
-                    pulseRouter.addLiquidityETH{value: amountPlsLiquidity}(
+                    pulseRouterV2.addLiquidityETH{value: amountPlsLiquidity}(
                         address(this),
                         amountGelLiquidity,
                         0,
@@ -1451,7 +1458,7 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
         uint256 plsBefore = address(this).balance;
         uint256 gelBefore = balanceOf(address(this));
 
-        pulseRouter.addLiquidityETH{value: msg.value}(
+        pulseRouterV2.addLiquidityETH{value: msg.value}(
             address(this),
             gelAmount,
             0,
@@ -1482,7 +1489,7 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
         uint256 deadline
     ) public nonReentrant {
         IERC20(pulseV2Pair).transferFrom(msg.sender, address(this), lpAmount);
-        IERC20(pulseV2Pair).approve(address(pulseRouter), lpAmount);
+        IERC20(pulseV2Pair).approve(address(pulseRouterV2), lpAmount);
 
         isFeeExempt[msg.sender] = true;
 
@@ -1490,7 +1497,7 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
         uint256 plsBefore = address(this).balance;
         uint256 gelBefore = balanceOf(address(this));
 
-        pulseRouter.removeLiquidityETH(
+        pulseRouterV2.removeLiquidityETH(
             address(this),
             lpAmount,
             0,
