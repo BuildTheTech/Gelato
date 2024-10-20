@@ -8,7 +8,7 @@ export const shortenAddress = (address: string, chars = 5) => {
   return `${prefix}...${suffix}`;
 };
 
-export const shortenDecimal = (val: number, decimal = 2) => {
+export const shortenDecimal = (val: number, decimal = 6) => {
   const str = val.toString();
   if (str.indexOf(".") < 0) {
     return str;

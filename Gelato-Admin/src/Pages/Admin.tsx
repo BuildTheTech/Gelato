@@ -124,44 +124,71 @@ const Admin = () => {
     functionName: "swapThreshold",
   });
 
+  // Initialize form with contract data only once after fetching
   useEffect(() => {
-    const solidXBurnFee = (solidXBurnFeeResult.data as bigint[]) || [0n];
-    const stackedBurnFee = (stackedBurnFeeResult.data as bigint[]) || [0n];
-    const gelatoBurnFee = (gelatoBurnFeeResult.data as bigint[]) || [0n];
-    const solidXReflectionFee =
-      (solidXReflectionFeeResult.data as bigint[]) || [0n];
-    const hexReflectionFee = (hexReflectionFeeResult.data as bigint[]) || [0n];
-    const liquidityFee = (liquidityFeeResult.data as bigint[]) || [0n];
-    const totalBuyFee = (totalBuyFeeResult.data as bigint[]) || [0n];
-    const totalSellFee = (totalSellFeeResult.data as bigint[]) || [0n];
-    const gelatoBurned = (totalGelBurnedResult.data as bigint[]) || [0n];
-    const plsLpAdded = (totalGelBurnedResult.data as bigint[]) || [0n];
-    const gelLpAdded = (totalGelLpAddedResult.data as bigint[]) || [0n];
-    const stackedBurned = (totalStackedBurnedResult.data as bigint[]) || [0n];
-    const solidXBurned = (totalSolidXBurnedResult.data as bigint[]) || [0n];
-    const hexDistributed = (totalHexDistributedResult.data as bigint[]) || [0n];
-    const solidXDistributed =
-      (totalSolidXDistributedResult.data as bigint[]) || [0n];
-    const txLimit = (txLimitResult.data as bigint[]) || [0n];
-    const swapThreshold = (swapThresholdResult.data as bigint[]) || [0n];
-
-    setSolidXBurnFee(shortenDecimal(Number(solidXBurnFee) / 100));
-    setStackedBurnFee(shortenDecimal(Number(stackedBurnFee) / 100));
-    setGelatoBurnFee(shortenDecimal(Number(gelatoBurnFee) / 100));
-    setSolidXReflectionFee(shortenDecimal(Number(solidXReflectionFee) / 100));
-    setHexReflectionFee(shortenDecimal(Number(hexReflectionFee) / 100));
-    setLiquidityFee(shortenDecimal(Number(liquidityFee) / 100));
-    setTotalBuyFee(shortenDecimal(Number(totalBuyFee) / 100));
-    setTotalSellFee(shortenDecimal(Number(totalSellFee) / 100));
-    setGelatoBurned(shortenDecimal(Number(gelatoBurned) / 1e18));
-    setPlsLpAdded(shortenDecimal(Number(plsLpAdded) / 1e18));
-    setGelLpAdded(shortenDecimal(Number(gelLpAdded) / 1e18));
-    setStackedBurned(shortenDecimal(Number(stackedBurned) / 1e18));
-    setSolidXBurned(shortenDecimal(Number(solidXBurned) / 1e18));
-    setHexDistributed(shortenDecimal(Number(hexDistributed) / 1e8));
-    setSolidXDistributed(shortenDecimal(Number(solidXDistributed) / 1e18));
-    setTxLimit(shortenDecimal(Number(txLimit) / 1e18));
-    setSwapThreshold(shortenDecimal(Number(swapThreshold) / 1e18));
+    if (solidXBurnFeeResult.data) {
+      setSolidXBurnFee(shortenDecimal(Number(solidXBurnFeeResult.data) / 10));
+    }
+    if (stackedBurnFeeResult.data) {
+      setStackedBurnFee(shortenDecimal(Number(stackedBurnFeeResult.data) / 10));
+    }
+    if (gelatoBurnFeeResult.data) {
+      setGelatoBurnFee(shortenDecimal(Number(gelatoBurnFeeResult.data) / 10));
+    }
+    if (solidXReflectionFeeResult.data) {
+      setSolidXReflectionFee(
+        shortenDecimal(Number(solidXReflectionFeeResult.data) / 10)
+      );
+    }
+    if (hexReflectionFeeResult.data) {
+      setHexReflectionFee(
+        shortenDecimal(Number(hexReflectionFeeResult.data) / 10)
+      );
+    }
+    if (liquidityFeeResult.data) {
+      setLiquidityFee(shortenDecimal(Number(liquidityFeeResult.data) / 10));
+    }
+    if (totalBuyFeeResult.data) {
+      setTotalBuyFee(shortenDecimal(Number(totalBuyFeeResult.data) / 100));
+    }
+    if (totalSellFeeResult.data) {
+      setTotalSellFee(shortenDecimal(Number(totalSellFeeResult.data) / 100));
+    }
+    if (totalGelBurnedResult.data) {
+      setGelatoBurned(shortenDecimal(Number(totalGelBurnedResult.data) / 1e18));
+    }
+    if (totalPlsLpAddedResult.data) {
+      setPlsLpAdded(shortenDecimal(Number(totalPlsLpAddedResult.data) / 1e18));
+    }
+    if (totalGelLpAddedResult.data) {
+      setGelLpAdded(shortenDecimal(Number(totalGelLpAddedResult.data) / 1e18));
+    }
+    if (totalStackedBurnedResult.data) {
+      setStackedBurned(
+        shortenDecimal(Number(totalStackedBurnedResult.data) / 1e18)
+      );
+    }
+    if (totalSolidXBurnedResult.data) {
+      setSolidXBurned(
+        shortenDecimal(Number(totalSolidXBurnedResult.data) / 1e18)
+      );
+    }
+    if (totalHexDistributedResult.data) {
+      setHexDistributed(
+        shortenDecimal(Number(totalHexDistributedResult.data) / 1e8)
+      );
+    }
+    if (totalSolidXDistributedResult.data) {
+      setSolidXDistributed(
+        shortenDecimal(Number(totalSolidXDistributedResult.data) / 1e18)
+      );
+    }
+    if (txLimitResult.data) {
+      setTxLimit(shortenDecimal(Number(txLimitResult.data) / 1e18));
+    }
+    if (swapThresholdResult.data) {
+      setSwapThreshold(shortenDecimal(Number(swapThresholdResult.data) / 1e18));
+    }
   }, [
     solidXBurnFeeResult.data,
     stackedBurnFeeResult.data,
@@ -190,12 +217,12 @@ const Admin = () => {
         address: gelatoToken,
         functionName: "setFees",
         args: [
-          parseFloat(solidXBurnFee) * 100,
-          parseFloat(stackedBurnFee) * 100,
-          parseFloat(gelatoBurnFee) * 100,
-          parseFloat(solidXReflectionFee) * 100,
-          parseFloat(hexReflectionFee) * 100,
-          parseFloat(liquidityFee) * 100,
+          parseFloat(solidXBurnFee) * 10,
+          parseFloat(stackedBurnFee) * 10,
+          parseFloat(gelatoBurnFee) * 10,
+          parseFloat(solidXReflectionFee) * 10,
+          parseFloat(hexReflectionFee) * 10,
+          parseFloat(liquidityFee) * 10,
           parseFloat(totalBuyFee) * 100,
           parseFloat(totalSellFee) * 100,
           true,
@@ -207,16 +234,6 @@ const Admin = () => {
       await waitForTransactionReceipt(wagmiConfig, {
         hash: writeResult,
       });
-
-      // Refetch all related fee data after setting new values
-      solidXBurnFeeResult.refetch();
-      stackedBurnFeeResult.refetch();
-      gelatoBurnFeeResult.refetch();
-      solidXReflectionFeeResult.refetch();
-      hexReflectionFeeResult.refetch();
-      liquidityFeeResult.refetch();
-      totalBuyFeeResult.refetch();
-      totalSellFeeResult.refetch();
 
       myToast({
         title: <span className="green">Set Fees</span>,
@@ -236,7 +253,7 @@ const Admin = () => {
         abi: TokenABI,
         address: gelatoToken,
         functionName: "setTxLimit",
-        args: [txLimit],
+        args: [parseFloat(txLimit) * 1e18],
         account: account.address,
       });
 
@@ -263,7 +280,7 @@ const Admin = () => {
         abi: TokenABI,
         address: gelatoToken,
         functionName: "setSwapBackSettings",
-        args: [true, swapThreshold],
+        args: [true, parseFloat(swapThreshold) * 1e18],
         account: account.address,
       });
 
