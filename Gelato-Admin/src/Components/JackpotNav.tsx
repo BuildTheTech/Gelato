@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Container, Nav, Navbar, Offcanvas } from "react-bootstrap";
-import { Link } from "react-router-dom";
 import { UserIcon } from "./Icons";
 import MobilaNav from "./MobilaNav";
 import { useAccount, useDisconnect } from "wagmi";
