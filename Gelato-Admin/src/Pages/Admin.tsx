@@ -149,10 +149,10 @@ const Admin = () => {
       setLiquidityFee(shortenDecimal(Number(liquidityFeeResult.data) / 10));
     }
     if (totalBuyFeeResult.data) {
-      setTotalBuyFee(shortenDecimal(Number(totalBuyFeeResult.data) / 100));
+      setTotalBuyFee(shortenDecimal(Number(totalBuyFeeResult.data) / 10));
     }
     if (totalSellFeeResult.data) {
-      setTotalSellFee(shortenDecimal(Number(totalSellFeeResult.data) / 100));
+      setTotalSellFee(shortenDecimal(Number(totalSellFeeResult.data) / 10));
     }
     if (totalGelBurnedResult.data) {
       setGelatoBurned(shortenDecimal(Number(totalGelBurnedResult.data) / 1e18));
