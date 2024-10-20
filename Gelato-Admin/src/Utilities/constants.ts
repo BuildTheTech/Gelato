@@ -1,4 +1,4 @@
-export const walletConnectProjectId = "0c357191865ad3d7853c45243692c74f";
+export const walletConnectProjectId = "1f41baba35d162bb8b3372759cc2e434";
 
 export const gelatoToken = "0x96abE8115f8eE4649B773b06c4011AedbF663085";
 export const gelatoDistributor = "0x96abE8115f8eE4649B773b06c4011AedbF663085";
