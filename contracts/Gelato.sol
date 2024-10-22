@@ -1450,29 +1450,29 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
         distributor.claimDividend();
     }
 
-    function addLiquidity(
-        uint256 gelAmount,
-        uint256 deadline
-    ) public payable nonReentrant {
+    function addLiquidity(uint256 gelAmount, uint256 deadline) public payable nonReentrant {
         _transferFrom(msg.sender, address(this), gelAmount);
 
         // Track starting balances
-        uint256 plsBefore = address(this).balance;
+        uint256 plsSent = msg.value;
         uint256 gelBefore = balanceOf(address(this));
 
-        pulseRouterV2.addLiquidityETH{value: msg.value}(
+        // Add liquidity
+        pulseRouterV2.addLiquidityETH{value: plsSent}(
             address(this),
             gelAmount,
             0,
-            msg.value,
+            0, // Accept any amount of liquidity added
             msg.sender,
             deadline
         );
 
-        // Calculate after balances
-        uint256 plsRemaining = address(this).balance.sub(plsBefore);
+        // Calculate the remaining balances
+        uint256 plsUsed = plsSent - address(this).balance; // PLS used for liquidity
+        uint256 plsRemaining = plsSent - plsUsed;
         uint256 gelRemaining = balanceOf(address(this)).sub(gelBefore);
 
+        // Refund excess PLS if any
         if (plsRemaining > 0) {
             (bool success, ) = payable(msg.sender).call{
                 value: plsRemaining,
@@ -1481,6 +1481,7 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
             require(success, "PLS transfer failed");
         }
 
+        // Refund excess GEL tokens if any
         if (gelRemaining > 0) {
             _transferFrom(address(this), msg.sender, gelRemaining);
         }
