@@ -1462,7 +1462,7 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
             address(this),
             gelAmount,
             0,
-            0, // Accept any amount of liquidity added
+            0,
             msg.sender,
             deadline
         );
