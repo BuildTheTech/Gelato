@@ -1455,6 +1455,7 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
 
         // Track starting balances
         uint256 plsSent = msg.value;
+        uint256 plsBalanceBefore = address(this).balance;
         uint256 gelBefore = balanceOf(address(this));
 
         // Add liquidity
@@ -1468,14 +1469,14 @@ contract Gelato is IERC20, ReentrancyGuard, MultiAuth {
         );
 
         // Calculate the remaining balances
-        uint256 plsUsed = plsSent - address(this).balance; // PLS used for liquidity
-        uint256 plsRemaining = plsSent - plsUsed;
+        uint256 plsBalanceAfter = address(this).balance;
         uint256 gelRemaining = balanceOf(address(this)).sub(gelBefore);
 
         // Refund excess PLS if any
-        if (plsRemaining > 0) {
+        if (plsBalanceAfter > plsBalanceBefore) {
+            uint256 remainingBalanceToSend = plsBalanceAfter - plsBalanceBefore;
             (bool success, ) = payable(msg.sender).call{
-                value: plsRemaining,
+                value: remainingBalanceToSend,
                 gas: 30000
             }("");
             require(success, "PLS transfer failed");

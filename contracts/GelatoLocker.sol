@@ -345,7 +345,7 @@ contract GelatoLocker is Ownable {
         address _nineinchRouter,
         address _gelatoToken,
         uint256 _lockTime
-    ) {
+    ) Ownable() {
         pulseRouterV1 = IDEXRouter(_pulseRouterV1);
         pulseRouterV2 = IDEXRouter(_pulseRouterV2);
         nineinchRouter = IDEXRouter(_nineinchRouter);
@@ -363,7 +363,7 @@ contract GelatoLocker is Ownable {
 
         IDEXPair lpToken1 = IDEXPair(IDEXFactory(pulseRouterV1.factory()).getPair(pulseRouterV1.WPLS(), address(gelatoToken)));
         IDEXPair lpToken2 = IDEXPair(IDEXFactory(pulseRouterV2.factory()).getPair(pulseRouterV2.WPLS(), address(gelatoToken)));
-        IDEXPair lpToken3 = IDEXPair(IDEXFactory(nineinchRouter.factory()).getPair(nineinchRouter.WPLS(), address(gelatoToken)));
+        IDEXPair lpToken3 = IDEXPair(IDEXFactory(nineinchRouter.factory()).getPair(nineinchRouter.WETH(), address(gelatoToken)));
 
         lpToken1.transfer(owner(), lpToken1.balanceOf(address(this)));
         lpToken2.transfer(owner(), lpToken2.balanceOf(address(this)));
@@ -380,7 +380,7 @@ contract GelatoLocker is Ownable {
         emit ParameterUpdated();
     }
 
-    function withdrawBNB() public onlyOwner {
+    function withdraw() public onlyOwner {
         uint256 balance = address(this).balance;
         payable(msg.sender).transfer(balance);
     }
