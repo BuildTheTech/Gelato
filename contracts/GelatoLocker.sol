@@ -361,13 +361,27 @@ contract GelatoLocker is Ownable {
     function endLock() public onlyOwner {
         require(block.timestamp >= lockTime, "LP tokens are still locked.");
 
-        IDEXPair lpToken1 = IDEXPair(IDEXFactory(pulseRouterV1.factory()).getPair(pulseRouterV1.WPLS(), address(gelatoToken)));
-        IDEXPair lpToken2 = IDEXPair(IDEXFactory(pulseRouterV2.factory()).getPair(pulseRouterV2.WPLS(), address(gelatoToken)));
-        IDEXPair lpToken3 = IDEXPair(IDEXFactory(nineinchRouter.factory()).getPair(nineinchRouter.WETH(), address(gelatoToken)));
 
-        lpToken1.transfer(owner(), lpToken1.balanceOf(address(this)));
-        lpToken2.transfer(owner(), lpToken2.balanceOf(address(this)));
-        lpToken3.transfer(owner(), lpToken3.balanceOf(address(this)));
+        address lpPair1;
+        try IDEXFactory(pulseRouterV1.factory()).getPair(pulseRouterV1.WPLS(), address(gelatoToken)) returns (address _lpPair1) {
+            lpPair1 = _lpPair1;
+            IDEXPair lpToken1 = IDEXPair(lpPair1);
+            lpToken1.transfer(owner(), lpToken1.balanceOf(address(this)));
+        } catch {}
+
+        address lpPair2;
+        try IDEXFactory(pulseRouterV2.factory()).getPair(pulseRouterV2.WPLS(), address(gelatoToken)) returns (address _lpPair2) {
+            lpPair2 = _lpPair2;
+            IDEXPair lpToken2 = IDEXPair(lpPair2);
+            lpToken2.transfer(owner(), lpToken2.balanceOf(address(this)));
+        } catch {}
+
+        address lpPair3;
+        try IDEXFactory(nineinchRouter.factory()).getPair(nineinchRouter.WETH(), address(gelatoToken)) returns (address _lpPair3) {
+            lpPair3 = _lpPair3;
+            IDEXPair lpToken3 = IDEXPair(lpPair3);
+            lpToken3.transfer(owner(), lpToken3.balanceOf(address(this)));
+        } catch {}
 
         lockEnded = true;
         emit LockEnded();
