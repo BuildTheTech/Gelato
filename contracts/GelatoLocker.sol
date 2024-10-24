@@ -405,7 +405,7 @@ contract GelatoLocker is Ownable {
         IDEXPair lpToken1 = IDEXPair(IDEXFactory(pulseRouterV1.factory()).getPair(pulseRouterV1.WPLS(), address(gelatoToken)));
         IDEXPair lpToken2 = IDEXPair(IDEXFactory(pulseRouterV2.factory()).getPair(pulseRouterV2.WPLS(), address(gelatoToken)));
         IDEXPair lpToken3 = IDEXPair(IDEXFactory(nineinchRouter.factory()).getPair(nineinchRouter.WETH(), address(gelatoToken)));
-        if (!lockEnded) {
+        if (block.timestamp >= lockTime) {
             require(_token != address(lpToken1) || _token != address(lpToken2) || _token != address(lpToken3), "You can not withdraw LP token.");
         }
 
